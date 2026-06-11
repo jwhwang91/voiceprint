@@ -11,13 +11,19 @@
 - 출력: `personas/<글종류>.md` (`src/blog_automation/persona/templates/persona_template.md` 형식)
 - ⭐ 이 .md가 전체 품질을 좌우한다. 구체적이고 재현 가능하게 써라(예: "보통 도입부 1문단 뒤 첫 사진", "문장 끝 'ㅎㅎ' 빈도 높음").
 
-### 2) 글·사진배치 작성 — `prompts/write_post.md`
+### 2) 사진 분석 + 글·배치 작성 — `prompts/write_post.md`
+- 모델: **Opus 4.8**(`.claude/settings.json` 기본값). 사진 비전 분석 + 페르소나 모사 품질용.
 - 입력: `personas/<글종류>.md` + `data/input/<job>/photos/*` + `data/input/<job>/description.txt`
-- 작업: 페르소나 말투로 본문 작성 + 각 사진을 본문 어디에 넣을지 **배치도** 계획
+- 작업:
+  1) `photos/*` 를 **직접 열어 분석·태깅**(파일명 순서 의존 금지) → `data/drafts/<job>/photo_tags.json`
+  2) 페르소나 말투로 **약 2000자** 본문 작성
+  3) 태그를 근거로 각 사진을 **내용에 맞는 위치**에 배치
 - 출력:
-  - `data/drafts/<job>/post.md` — 본문(사진 자리는 `{{photo: 파일명}}` 플레이스홀더로 표시)
-  - `data/drafts/<job>/layout.json` — `src/blog_automation/content/schema.py`의 스키마를 따르는 배치도
-- 사진 배치는 페르소나의 배치 패턴을 반드시 반영할 것.
+  - `data/drafts/<job>/photo_tags.json` — 사진별 분석 태그(category/subject/hero/group_key)
+  - `data/drafts/<job>/post.md` — 본문(사진 자리는 `{{photo: 파일명}}`)
+  - `data/drafts/<job>/layout.json` — `src/blog_automation/content/schema.py` 스키마 배치도
+- 사진 배치는 페르소나 패턴 + 사진 분석 태그를 반드시 반영할 것.
+- ⚠️ 대시(`-- — ·`)·구분 기호 금지(네이버가 글 위에 가로선 생성). 텍스트 블록 3개+ 연속 금지.
 
 ### 3) 자동 답방 댓글 생성 — `prompts/write_comments.md`
 - 입력: `data/engage/<job>/targets.json` (댓글 단 사람들의 최근 글 발췌)
