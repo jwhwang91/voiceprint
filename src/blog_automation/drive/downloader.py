@@ -14,7 +14,7 @@ import requests
 
 from ..config import Config
 from ..logging_setup import get_logger
-from ..utils.files import list_images
+from ..utils.files import list_images, IMAGE_EXTS
 
 log = get_logger()
 
@@ -30,8 +30,33 @@ def run_fetch(cfg: Config, url: str, job: str) -> None:
 
     log.info("드라이브에서 다운로드 중... → %s", out_dir)
     if "/folders/" in url:
-        gdown.download_folder(url=url, output=str(out_dir), quiet=False,
-                              use_cookies=False)
+        # 폴더는 목록만 먼저 받고(skip_download) 이미지 파일만 ID 로 내려받는다.
+        # 대용량 동영상(.MOV 등)은 건너뛴다 — 동영상이 다운로드를 느리게 하고 구글
+        # 드라이브 rate-limit 을 유발해 '일부 사진 누락'을 일으키던 문제 해결.
+        try:
+            listing = gdown.download_folder(
+                url=url, output=str(out_dir), quiet=True,
+                use_cookies=False, skip_download=True) or []
+        except Exception as exc:  # noqa: BLE001
+            log.error("폴더 목록 가져오기 실패(드라이브 접근 제한 가능 — 잠시 후 재시도): %s", exc)
+            listing = []
+        images = [f for f in listing
+                  if Path(f.local_path).suffix.lower() in IMAGE_EXTS]
+        log.info("폴더 항목 %d개 중 이미지 %d개 받기(동영상 등 %d개 건너뜀)",
+                 len(listing), len(images), len(listing) - len(images))
+        got = 0
+        for f in images:
+            dest = Path(f.local_path)
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            if dest.exists() and dest.stat().st_size > 0:
+                got += 1
+                continue
+            try:
+                gdown.download(id=f.id, output=str(dest), quiet=True, use_cookies=False)
+                got += 1
+            except Exception as exc:  # noqa: BLE001
+                log.warning("이미지 다운로드 실패 %s: %s", dest.name, exc)
+        log.info("이미지 다운로드 완료 %d/%d", got, len(images))
     else:
         gdown.download(url=url, output=str(out_dir) + "/", quiet=False, fuzzy=True)
 
