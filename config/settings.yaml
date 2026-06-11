@@ -1,0 +1,57 @@
+# 전역 설정 — 코드에서 src/blog_automation/config.py 로 로드됨
+# .env 값이 있으면 .env 가 우선합니다.
+
+paths:
+  data_dir: data
+  collected_dir: data/collected
+  input_dir: data/input
+  drafts_dir: data/drafts
+  auth_dir: data/auth          # Playwright 세션(쿠키) 저장 위치
+  persona_dir: personas
+
+browser:
+  headless: false              # 네이버 봇 탐지 회피: 창 보이게
+  slow_mo_ms: 80               # 동작 사이 지연
+  timeout_ms: 30000
+  locale: ko-KR
+  user_agent: ""               # 비우면 Playwright 기본값
+  viewport: { width: 1280, height: 900 }
+
+collect:
+  max_posts: 50                # 페르소나 학습용 최대 수집 글 수
+  download_images: true        # 사진 배치 패턴 학습을 위해 이미지도 받음
+  request_delay_ms: 1500       # 글 사이 사람처럼 텀
+
+publish:
+  save_as_draft: true          # true면 '임시저장'까지만(안전). false면 실제 발행 시도
+  dry_run: false               # true면 입력만 하고 발행/저장 버튼 누르지 않음
+  per_image_wait_ms: 3500      # 이미지 업로드 대기
+  # --- 그룹(2장+) 레이아웃 선택 컨트롤 처리 ---
+  group_layout: 슬라이드        # 선호 그룹 레이아웃(슬라이드/콜라주/개별). layout.json 의
+                               #   image 블록에 "layout" 이 있으면 그 값이 우선.
+  group_upload_mode: group     # group(기본) | individual. individual 이면 항상 한 장씩
+                               #   업로드해 레이아웃 컨트롤 자체를 띄우지 않음(그룹화 X, 행 0%).
+                               #   ⚠️ 그룹이 연속 2회 실패하면 자동으로 개별 업로드로 전환됨.
+  layout_popup_budget_ms: 4000 # 레이아웃 컨트롤 등장 대기 한도(이 시간 지나면 기본값으로 진행)
+  save_layout_screenshots: true # 첫 그룹/실패 시 logs/screenshots/ 에 컨트롤 스크린샷 저장(진단용)
+
+engage:
+  # 자동 답방(품앗이): 내 글에 댓글 단 사람 블로그를 방문해 체류 후 댓글.
+  # ⚠️ 네이버 약관상 자동 댓글은 제재 위험 → 보수적으로 소량만, 사람처럼.
+  my_blog_id: cloudy43_          # 내 블로그 주소 아이디(댓글 단 사람을 찾을 글의 주인)
+  max_commenters: 5              # 한 번에 답방할 최대 인원(작게 유지)
+  posts_per_commenter: 2         # 각 블로그에서 방문할 최근 글 수(1~2)
+  dwell_seconds: 130             # 글당 최소 체류시간(2분 이상). 사람처럼 스크롤
+  dwell_jitter_seconds: 40       # 체류시간 랜덤 가미(±)
+  delay_between_posts_ms: 45000  # 글 사이 간격(랜덤 가미)
+  dry_run: true                  # true면 체류만 하고 댓글 등록 안 함(안전 기본값)
+  exclude_blog_ids: []           # 답방 제외할 블로그 ID 목록
+
+persona:
+  # 글 종류 자동 분류용 키워드 힌트 (Claude Code 분석 시 참고)
+  categories:
+    맛집방문:   [맛집, 식당, 메뉴, 웨이팅, 내돈내산, 카페]
+    제품리뷰:   [리뷰, 사용기, 협찬, 언박싱, 후기, 추천템]
+    육아:       [육아, 아기, 이유식, 어린이집, 출산, 아이]
+    여행:       [여행, 숙소, 호텔, 코스, 여행지]
+    일상:       [일상, 데일리, 오늘]

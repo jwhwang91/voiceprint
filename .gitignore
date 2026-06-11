@@ -1,0 +1,29 @@
+# ── 환경/비밀 (절대 커밋 금지) ──
+.env
+.env.*
+!.env.example
+
+# ── 런타임 산출물 · 개인 데이터 (커밋 금지) ──
+# 네이버 로그인 세션(data/auth), 수집 글, 입력 사진, 초고, 답방 데이터.
+# data/ 아래는 .gitkeep 빼고 전부 무시 — 새 하위폴더가 생겨도 자동 보호.
+data/*
+!data/.gitkeep
+# 실행 로그 + 그룹 레이아웃 스크린샷(에디터 화면 캡처 포함).
+logs/
+# 루트에 떨어진 실행 로그류(개인 글 내용·에디터 HTML 포함).
+*.log
+*_log.txt
+
+# ── 파이썬 ──
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+
+# ── IDE / OS ──
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

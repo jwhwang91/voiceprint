@@ -1,0 +1,16 @@
+# 브라우저 자동화 (네이버 수집/발행)
+playwright>=1.44
+
+# 구글 드라이브 공개 공유 링크 다운로드
+gdown>=5.2
+
+# HTTP + HTML 파싱 (과거 글 수집: PostView.naver 본문 파싱)
+requests>=2.31
+beautifulsoup4>=4.12
+
+# 설정/환경
+pyyaml>=6.0
+python-dotenv>=1.0
+
+# 개발용
+pytest>=8.0

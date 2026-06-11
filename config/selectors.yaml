@@ -1,0 +1,72 @@
+# 네이버 DOM 셀렉터 모음 — UI가 바뀌면 "여기만" 고치면 됩니다.
+# 네이버는 SmartEditor를 iframe(mainFrame) 안에 띄우는 경우가 많아 frame 진입이 필요합니다.
+# 실제 값은 최초 1회 브라우저에서 확인 후 채워 넣으세요. (TODO 표시된 곳)
+
+login:
+  url: "https://nid.naver.com/nidlogin.login"
+  id_input: "#id"
+  pw_input: "#pw"
+  submit_button: "#log\\.login"          # 확인됨: button id="log.login"
+  # 로그인 성공 판단용(naver.com 홈의 '로그아웃' 버튼). 클래스 해시 변동 대비 부분일치.
+  success_indicator: '[class*="btn_logout"]'   # 확인됨: .MyView-module__btn_logout___xxxxx
+
+blog:
+  # 수집은 DOM 스크래핑 대신 네이버 비공식 JSON/HTML API 사용(로그인 불필요, 안정적).
+  # {blog_id} = 블로그 주소 아이디(로그인 ID와 다를 수 있음. 예: 로그인 cloudy9191 / 블로그 cloudy43_)
+  post_list_api: "https://blog.naver.com/PostTitleListAsync.naver?blogId={blog_id}&viewdate=&currentPage={page}&categoryNo=0&parentCategoryNo=&countPerPage={count}"
+  post_view_url: "https://blog.naver.com/PostView.naver?blogId={blog_id}&logNo={log_no}"
+  # 해시태그는 정적 HTML 에 없고 이 API 로 따로 로드됨(tagName: URL인코딩, 콤마구분)
+  post_tags_api: "https://blog.naver.com/BlogTagListInfo.naver?blogId={blog_id}&logNoList={log_no}&logType=mylog"
+
+post_view:
+  # PostView.naver 응답 파싱용 (확인됨: SmartEditor ONE)
+  container: ".se-main-container"        # 본문 컨테이너
+  component: ".se-component"             # 본문 블록(텍스트/이미지 등) — 순서대로
+  text_component: "se-text"              # 컴포넌트 클래스에 포함되면 텍스트
+  image_component: "se-image"            # 포함되면 이미지
+  image_group_component: "se-imageGroup" # 콜라주(연속 사진)
+  section_title_component: "se-sectionTitle"
+  paragraph: ".se-text-paragraph"
+  image_resource: "img.se-image-resource"
+  title: ".se-title-text, .pcol1, .se-documentTitle"
+  tags: "a.item_tag, .post_tag a, .wrap_tag a"
+
+comments:
+  # 내 글의 댓글 목록에서 '댓글 단 사람'의 블로그를 추출. 확인됨: 댓글(cbox)은
+  # #mainFrame 안 PostView 에 렌더됨. 스크롤로 lazy-load 트리거 필요.
+  main_frame: "#mainFrame"
+  comment_area: ".area_comment"     # 스크롤로 댓글 로드 트리거할 기준
+  comment_item: "li.u_cbox_comment" # 댓글 한 개
+  commenter_link: "a.u_cbox_name"   # 확인됨: 작성자 → 블로그(href=blog.naver.com/<id>)
+
+target_comment:
+  # 상대방 글에 댓글 달기 (cbox). 확인됨: 입력창은 contenteditable div.
+  main_frame: "#mainFrame"
+  comment_area: ".area_comment"     # 스크롤 기준
+  comment_open_button: ".btn_write_comment"   # 작성창 펼치기(접혀 있을 때)
+  comment_textarea: ".u_cbox_text"  # 확인됨: contenteditable div (textarea 아님)
+  submit_button: ".u_cbox_btn_upload"  # 확인됨: '등록' 버튼
+
+write:
+  # 새 글 작성 화면. 확인됨: 에디터는 iframe 이 아니라 페이지에 직접 로드됨(main_frame 불필요).
+  # 클래스 해시(__m9KHH 등)는 빌드마다 바뀌므로 [class*=] 부분일치로 견고하게.
+  url: "https://blog.naver.com/{blog_id}/postwrite"
+  main_frame: null                                             # iframe 없음
+  # 제목/본문 (SmartEditor ONE: 캔버스 전체가 단일 contenteditable)
+  title_area: ".se-section-documentTitle .se-text-paragraph"   # 확인됨
+  body_area: ".se-section-text .se-text-paragraph"             # 확인됨(기본 빈 본문 문단)
+  # 사진: 상단 툴바의 '사진' 버튼. 파일 input 은 클릭 시 동적 생성 → expect_file_chooser 로 처리
+  image_button: ".se-image-toolbar-button"                     # 확인됨
+  image_file_input: "input[type=file]"                         # 폴백용
+  # 그룹(2장+) 레이아웃 선택 컨트롤 — ✅ 2026-06-11 실제 발행 실행으로 확정:
+  #   · dim-modal 팝업. 제목 "사진 첨부 방식", 부제 "첨부되는 사진들의 레이아웃을 선택할 수 있습니다".
+  #   · 옵션 타일 3개: 개별사진 / 콜라주 / 슬라이드 (각 <label>, 가시).
+  #   · 타일 클릭 = 즉시 적용·닫힘(별도 확정 버튼 없음). 백드롭 class=se-popup-dim se-popup-dim-transparent.
+  #   image_uploader.py 가 '라벨(개별/콜라주/슬라이드) 가시성'으로 탐지 + 타일 클릭으로 처리하므로
+  #   여기 셀렉터는 따로 필요 없다(라벨/토큰은 image_uploader.py 의 _LAYOUT_CHOICES 에서 관리).
+  #   네이버가 UI 바꿔 라벨이 달라지면 _LAYOUT_CHOICES / _ALL_LAYOUT_LABELS 를 고친다.
+  # 저장/발행 (상단 우측). 확인됨: save_btn__/publish_btn__ + 해시
+  save_draft_button: '[class*="save_btn"]'                     # 확인됨: 임시'저장'
+  publish_open_button: '[class*="publish_btn"]'                # 확인됨: '발행' 패널 열기
+  # '발행' 클릭 시 뜨는 설정 패널의 최종 발행 버튼 — 패널 열어야 보임(첫 발행 때 확정 예정)
+  publish_confirm_button: '[class*="confirm_btn"]'             # TODO: 발행 패널에서 최종 확인 필요
