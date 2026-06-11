@@ -81,6 +81,10 @@ voiceprint/
 
 ## 설치
 
+요구사항: Python 3.10+, Playwright(Chromium). 그 외 의존성은 `requirements.txt` 참고.
+Windows · macOS · Linux 모두 동작합니다(코드는 `pathlib` + UTF-8 기반, OS 의존 코드 없음).
+
+**Windows (PowerShell)**
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
@@ -89,7 +93,17 @@ playwright install chromium
 copy .env.example .env            # NAVER_ID / NAVER_PW 등 채우기
 ```
 
-요구사항: Python 3.10+, Playwright(Chromium), gdown, requests, PyYAML, python-dotenv.
+**macOS · Linux**
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+playwright install chromium
+cp .env.example .env              # NAVER_ID / NAVER_PW 등 채우기
+```
+
+> macOS 에서는 `python` 대신 `python3` 를 사용하세요. Apple Silicon(M1~)도 Playwright 가 지원합니다.
+> Linux 는 파일명 대소문자를 구분하므로 사진 확장자(`.JPG` 등)를 `layout.json` 과 정확히 일치시키세요.
 
 ## 설정
 
