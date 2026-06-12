@@ -36,10 +36,10 @@ Python은 **기계적인 일**(브라우저 제어, 다운로드, 업로드)만 
    personas/<글종류>.md   ⭐            말투·구성·사진배치 스타일 정의
 
 [준비]  (수동) 구글 드라이브 폴더 → ZIP 다운로드 → 압축 풀어
-        data/input/<작업명>/photos/ 에 사진 넣기 + description.txt 작성
+        data/input/<작업명>/photos/ 에 사진 넣기 (+ description.txt 메모는 선택)
             │
             ▼
-   data/input/<job>/photos/*  +  description.txt
+   data/input/<job>/photos/*  (+ description.txt 선택)
 
 [작성]  Claude Code 에게: "prompts/write_post.md 따라 <job> 글 써줘"
             │
@@ -153,8 +153,9 @@ prompts/analyze_persona.md 따라 페르소나 분석해줘
    ```
    - `<작업명>` = `<6자리날짜>_<가게이름>` (예: `260615_네이다이닝라운지`)
    - 카테고리 폴더 구조는 **그대로 둬도 됩니다** — `publish`/검증이 `photos/` 하위를 재귀로 찾습니다(평탄하게 풀어도 동작). 폴더 이름은 글쓰기 단계에서 사진 분류 힌트로 활용됩니다.
-3. 같은 작업 폴더에 방문 메모 작성 → `data\input\<작업명>\description.txt`
-   (가는 길·메뉴·느낌 등 자유롭게. 이 메모가 글의 사실 근거가 됩니다.)
+3. (선택) 같은 작업 폴더에 방문 메모 작성 → `data\input\<작업명>\description.txt`
+   (가는 길·메뉴·느낌 등 자유롭게. 메모가 있으면 글의 사실 근거가 됩니다.
+   **없으면** Claude 가 사진만 보고 글을 씁니다 — 비전 단독 모드.)
 
 **2-2. 글·사진배치 작성 (Claude Code)**
 ```text
