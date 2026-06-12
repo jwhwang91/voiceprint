@@ -11,7 +11,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from ..utils.files import read_json
+from ..utils.files import read_json, resolve_images
 
 # layout.json 예시/스키마(설명용)
 LAYOUT_SCHEMA: dict[str, Any] = {
@@ -59,8 +59,14 @@ def validate_layout(layout: dict[str, Any], photos_dir: Path) -> list[str]:
             if not files:
                 errors.append(f"blocks[{i}]: image 블록에 file/files 없음")
             for f in files:
-                if not (photos_dir / f).exists():
+                matches = resolve_images(photos_dir, f)
+                if not matches:
                     errors.append(f"blocks[{i}]: 사진 파일 없음 → {f}")
+                elif len(matches) > 1:
+                    rels = ", ".join(str(m.relative_to(photos_dir)) for m in matches)
+                    errors.append(
+                        f"blocks[{i}]: 같은 파일명이 여러 폴더에 있음 → {f} ({rels}). "
+                        f"layout.json 에 '<카테고리>/{f}' 처럼 폴더를 포함해 지정하세요.")
         if t == "text" and not blk.get("content"):
             errors.append(f"blocks[{i}]: text 블록이 비어 있음")
     return errors

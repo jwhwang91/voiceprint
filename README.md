@@ -15,7 +15,7 @@ Python은 **기계적인 일**(브라우저 제어, 다운로드, 업로드)만 
 |------|------|----------------|
 | 1. 과거 글 수집 | **Python** (네이버 공개 API, 로그인 불필요) | 블로그 → `data/collected/` |
 | 2. 페르소나(voiceprint) 분석 | **Claude Code** | `data/collected/` → `personas/<글종류>.md` ⭐ |
-| 3. 사진·설명 다운로드 | **Python / gdown** | 구글 드라이브·docs → `data/input/<job>/` |
+| 3. 사진·설명 준비 | **사람 (수동)** | 드라이브 ZIP 다운로드 + 메모 → `data/input/<job>/` |
 | 4. 글 · 사진배치 작성 | **Claude Code** | 페르소나 + 입력 → `data/drafts/<job>/` |
 | 5. 네이버 임시저장/발행 | **Python / Playwright** | 초고 + 배치도 → SmartEditor 새 글 |
 | (옵션) 자동 답방 댓글 | **Claude Code + Python** | 댓글러 최근 글 → 자연스러운 댓글 |
@@ -35,8 +35,8 @@ Python은 **기계적인 일**(브라우저 제어, 다운로드, 업로드)만 
             ▼
    personas/<글종류>.md   ⭐            말투·구성·사진배치 스타일 정의
 
-[다운로드]  python main.py fetch     --url <드라이브 공유링크> --job <작업명>
-            python main.py fetch-doc --url <구글 docs 링크>     # 여러 글 일괄
+[준비]  (수동) 구글 드라이브 폴더 → ZIP 다운로드 → 압축 풀어
+        data/input/<작업명>/photos/ 에 사진 넣기 + description.txt 작성
             │
             ▼
    data/input/<job>/photos/*  +  description.txt
@@ -115,16 +115,81 @@ cp .env.example .env              # NAVER_ID / NAVER_PW 등 채우기
   - `group_upload_mode: group` — 그룹 묶음 업로드(권장). `individual` 은 한 장씩.
 - **`config/selectors.yaml`** — 네이버 DOM 셀렉터. UI가 바뀌면 **여기 한 곳만** 고치면 됩니다.
 
-## 사용
+## 사용 — 단계별 워크플로우
+
+세 가지 작업 흐름입니다. 각 단계에 **Python 명령**(터미널에서 사용자가 직접 실행)과
+**Claude Code 명령**(채팅창에 입력)을 함께 표기했습니다.
+
+> Windows PowerShell 기준. macOS·Linux 는 `python` → `python3`.
+> Python 명령은 가상환경을 켠 상태에서 실행하세요: `.\.venv\Scripts\Activate.ps1`
+
+### 1) 페르소나 업데이트 (voiceprint 학습)
+
+과거 글을 분석해 말투·구성·사진배치 스타일을 `personas/*.md` 로 추출/갱신합니다.
 
 ```powershell
-python main.py collect  --id <블로그ID>                       # 1. 과거 글 수집
-# (Claude Code) 페르소나 분석 → personas/*.md
-python main.py fetch    --url <드라이브링크> --job 맛집_260611  # 3. 사진/설명 받기
-# (Claude Code) 글 작성 → data/drafts/<job>/
-python main.py publish  --job 맛집_260611 --dry-run           # 미리보기(저장 안 함)
-python main.py publish  --job 맛집_260611                      # 임시저장
+# (Python) 과거 글 수집 — 네이버 공개 API, 로그인 불필요
+python main.py collect --id <블로그ID>            # 예: cloudy43_
 ```
+```text
+# (Claude Code) 수집한 글을 분석해 personas/*.md 생성·갱신
+prompts/analyze_persona.md 따라 페르소나 분석해줘
+```
+- 입력: `data/collected/<블로그ID>/*.json`  →  산출물: `personas/<글종류>.md` ⭐
+
+### 2) 자동 블로그 글쓰기
+
+**2-1. 사진·메모 준비 (수동 — 가장 안정적)**
+
+> ⚠️ 자동 다운로드(`fetch`/`fetch-doc`, gdown)는 한 번에 여러 폴더를 받으면 구글 드라이브의
+> 익명 다운로드 **횟수 제한**에 걸려 뒤쪽 폴더가 "0장"으로 실패합니다(폴더 목록은 보이는데
+> 파일 본문은 못 받음). 그래서 **브라우저에서 ZIP 다운로드**가 가장 확실합니다.
+
+1. 구글 드라이브에서 폴더 열기 → 우클릭(또는 우측 상단 ⋮) → **다운로드** (ZIP 으로 받아짐)
+2. 압축을 풀어 **카테고리 폴더째** 작업 폴더의 `photos/` 안에 넣기(폴더 이름이 사진 분류 라벨로 쓰임):
+   ```
+   data\input\<작업명>\photos\<카테고리>\*.jpg
+   예: data\input\260615_네이다이닝라운지\photos\사시미 플레이트 2인\IMG_1.JPG
+   ```
+   - `<작업명>` = `<6자리날짜>_<가게이름>` (예: `260615_네이다이닝라운지`)
+   - 카테고리 폴더 구조는 **그대로 둬도 됩니다** — `publish`/검증이 `photos/` 하위를 재귀로 찾습니다(평탄하게 풀어도 동작). 폴더 이름은 글쓰기 단계에서 사진 분류 힌트로 활용됩니다.
+3. 같은 작업 폴더에 방문 메모 작성 → `data\input\<작업명>\description.txt`
+   (가는 길·메뉴·느낌 등 자유롭게. 이 메모가 글의 사실 근거가 됩니다.)
+
+**2-2. 글·사진배치 작성 (Claude Code)**
+```text
+# 사진을 직접 보고 태깅 → 페르소나 말투로 본문(~2000자) + 배치도 작성
+prompts/write_post.md 따라 <작업명> 글 써줘       # 예: 260615_네이다이닝라운지
+```
+- 산출물: `data/drafts/<작업명>/` 의 `photo_tags.json` · `post.md` · `layout.json`
+
+**2-3. 네이버 발행 (Python)**
+```powershell
+# 미리보기 — 입력만 하고 저장/발행 버튼은 안 누름
+python main.py publish --job <작업명> --dry-run
+# 임시저장까지 (기본 안전모드). 최종 '발행'은 네이버에서 직접 확인 후 클릭
+python main.py publish --job <작업명>
+```
+
+### 3) 자동 답방 (품앗이 댓글)  ⚠️ 보수적으로
+
+내 글에 댓글 단 이웃의 글을 방문·체류한 뒤, 글 내용에 맞는 댓글을 남깁니다.
+
+```powershell
+# (Python) 댓글러 + 그들의 최근 글 수집 → targets.json
+python main.py engage scan --post <내글 logNo 또는 URL> --job 답방_<날짜>
+```
+```text
+# (Claude Code) 글 내용에 맞는 자연스러운 댓글 생성 → comments.json
+prompts/write_comments.md 따라 답방_<날짜> 댓글 써줘
+```
+```powershell
+# (Python) 방문·체류만 (dry-run, 안전)
+python main.py engage run --job 답방_<날짜>
+# (Python) 실제 댓글 등록
+python main.py engage run --job 답방_<날짜> --go
+```
+> 약관상 계정 정지 위험 → 기본 dry-run. 소량·느린 간격으로만 사용하세요.
 
 ### 산출물 형식 — `layout.json`
 
@@ -144,17 +209,6 @@ python main.py publish  --job 맛집_260611                      # 임시저장
 ```
 
 단독 사진은 `"file"`(문자열), 그룹은 `"files"`(배열) — 발행기가 이걸로 단독/그룹을 구분합니다.
-
-### (옵션) 자동 답방 — `engage`
-
-내 글에 댓글 단 사람의 블로그를 방문해 **충분히 체류**한 뒤, 글 내용에 맞는 댓글을 남기는 품앗이 보조.
-
-```powershell
-python main.py engage scan --post <내글 logNo/URL> --job 답방_260611   # 댓글러+최근글 수집
-# (Claude Code) prompts/write_comments.md 따라 댓글 생성 → comments.json
-python main.py engage run  --job 답방_260611          # 방문·체류만 (dry-run, 안전)
-python main.py engage run  --job 답방_260611 --go      # 실제 댓글 등록
-```
 
 ## 책임 있는 사용 ⚠️
 

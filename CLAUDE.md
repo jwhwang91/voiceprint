@@ -14,6 +14,8 @@
 ### 2) 사진 분석 + 글·배치 작성 — `prompts/write_post.md`
 - 모델: **Opus 4.8**(`.claude/settings.json` 기본값). 사진 비전 분석 + 페르소나 모사 품질용.
 - 입력: `personas/<글종류>.md` + `data/input/<job>/photos/*` + `data/input/<job>/description.txt`
+  - 사진·메모는 **사용자가 수동**으로 채운다(드라이브 폴더를 ZIP으로 받아 `photos/`에 풀고 `description.txt` 작성). `fetch`/`fetch-doc`(gdown)은 Drive 익명 다운로드 횟수제한으로 배치 시 뒤쪽 폴더가 0장 실패해 더는 기본 경로가 아니다.
+  - 사진은 보통 `photos/<카테고리>/` 하위폴더로 분류돼 들어온다. **모든 사진을 재귀로 직접 열어** 태깅하고, **폴더 이름은 카테고리 힌트**로 활용한다. layout.json의 `file`/`files`에는 파일명만 적으면 되며(publish가 재귀 해석), 같은 파일명이 여러 폴더에 있을 때만 `<카테고리>/<파일>`로 구분한다.
 - 작업:
   1) `photos/*` 를 **직접 열어 분석·태깅**(파일명 순서 의존 금지) → `data/drafts/<job>/photo_tags.json`
   2) 페르소나 말투로 **약 2000자** 본문 작성
@@ -32,7 +34,8 @@
 - ⚠️ 스팸/제재 위험 → 글마다 구체 디테일을 짚어 진심 어린 톤으로.
 
 ## 절대 규칙
-- Python 스크립트(`main.py collect/fetch/publish`)는 **사용자가** 실행한다. 너는 산출물 폴더를 읽고 쓰기만 한다.
+- Python 스크립트(`main.py collect/publish/engage`)는 **사용자가** 실행한다. 너는 산출물 폴더를 읽고 쓰기만 한다.
+- 사진 입력은 **사용자가 수동 ZIP 다운로드**로 `data/input/<job>/photos/`에 넣는다(자동 `fetch` 의존 금지). 사진이 비어 있으면 글쓰기를 멈추고 사용자에게 알린다.
 - `layout.json`은 `publish` 단계가 그대로 파싱하므로 스키마를 정확히 지켜라.
 - 네이버 계정/개인 데이터(`data/` 하위)는 외부로 내보내지 마라.
 

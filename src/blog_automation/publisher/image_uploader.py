@@ -60,14 +60,17 @@ _LAYOUT_CONTAINER_SELECTORS = [
 _LAYOUT_CHOICES: dict[str, tuple[str, ...]] = {
     "슬라이드": ("슬라이드", "슬라이드쇼", "slide"),
     "콜라주": ("콜라주", "collage", "그리드"),
-    "개별": ("개별사진", "개별", "individual", "기본"),
+    "개별": ("개별사진", "개별", "individual"),  # "기본" 제거: "기본서체" 툴바와 substring 충돌
     "2열": ("2열",),
 }
 
 # 컨트롤 판별/덤프에 쓰는 한글 라벨
 _ALL_LAYOUT_LABELS = ("개별", "개별사진", "콜라주", "슬라이드", "슬라이드쇼", "2열")
 
-# 선택 후 (있을 때만) 누르는 확정 버튼. 없으면 즉시 적용된 것으로 간주.
+# ⚠️ 진단 덤프 전용(_dump_group_chooser_state). 절대 unscoped get_by_role(name=...)에
+#    넣지 말 것 — "적용" 이 상단 서식 툴바의 "굵게 굵기 적용"/"기울이기 … 적용" 등과
+#    substring 매칭돼 본문 서식을 토글한다(2026-06-12 버그 제거). 레이아웃 모달은 타일
+#    클릭=즉시 적용이라 확정 버튼이 애초에 없다.
 _CONFIRM_LABELS = ("적용", "완료", "확인", "등록")
 
 # "사진 첨부 방식" 팝업에서 내 PC 업로드 버튼 텍스트 후보
@@ -332,6 +335,59 @@ def _dump_group_chooser_state(page: Page, tag: str, n_photos: int,
         log.warning("[GROUP_CHOOSER_DUMP] dump failed: %s", exc)
 
 
+def _dump_format_toolbar_state(page: Page, tag: str, *, full: bool = False) -> bool:
+    """상단 서식 툴바 버튼의 눌림 상태를 '읽기만' 한다(클릭/키입력 절대 금지).
+
+    그룹/텍스트 블록 경계에서 서식 토글이 켜졌는지 확인하기 위한 읽기 전용 진단
+    (page.evaluate 로 aria-pressed/class 속성만 조회). 모든 로그는 '[FORMAT_TOOLBAR_DUMP]'.
+    활성(pressed/active) 토글이 하나라도 있으면 WARNING + True 반환(=본문 서식 오염 신호),
+    없으면 concise 'clean' INFO + False. full=True 면 DOM 관례 학습용으로 전체 목록을 남긴다.
+    PASS = clean(아무 버튼도 active 아님), FAIL = ⚠️ ACTIVE(특히 굵게/밑줄/취소선).
+    """
+    try:
+        info = page.evaluate(
+            r"""() => {
+                const kw = /굵게|기울이기|밑줄|취소선|글자\s*크기|크기 변경|서체|적용|정렬/;
+                const out = [];
+                document.querySelectorAll('button, [role=button]').forEach((b) => {
+                    const name = (b.getAttribute('aria-label')
+                                  || b.getAttribute('title')
+                                  || (b.textContent || '').trim());
+                    if (!name || !kw.test(name)) return;
+                    out.push({
+                        name: name.slice(0, 40),
+                        pressed: b.getAttribute('aria-pressed'),
+                        cls: (b.className || '').toString().slice(0, 90)
+                    });
+                });
+                return out.slice(0, 30);
+            }"""
+        ) or []
+    except Exception as exc:  # noqa: BLE001
+        log.warning("[FORMAT_TOOLBAR_DUMP] tag=%s read failed: %s", tag, exc)
+        return False
+
+    def _is_active(b: dict) -> bool:
+        if str(b.get("pressed") or "").lower() == "true":
+            return True
+        cls = str(b.get("cls") or "").lower()
+        # aria-pressed 가 없을 때 대비한 class 휴리스틱(관례 미확정 → 보수적 토큰만).
+        return any(tok in cls for tok in
+                   ("active", "selected", "applied", "적용됨", "se-is-on", "is-active"))
+
+    active = [b for b in info if _is_active(b)]
+    if active:
+        log.warning("[FORMAT_TOOLBAR_DUMP] tag=%s ⚠️ ACTIVE 서식 감지=%r", tag, active)
+        if full:
+            log.info("[FORMAT_TOOLBAR_DUMP] tag=%s full=%r", tag, info)
+        return True
+    if full:
+        log.info("[FORMAT_TOOLBAR_DUMP] tag=%s clean — full=%r", tag, info)
+    else:
+        log.info("[FORMAT_TOOLBAR_DUMP] tag=%s clean (%d buttons, none active)", tag, len(info))
+    return False
+
+
 # ---------------------------------------------------------------------------
 # 툴바 / 방식 선택 팝업
 # ---------------------------------------------------------------------------
@@ -466,17 +522,11 @@ def _try_click_layout_option(page: Page, preferred: str) -> bool:
     return False
 
 
-def _click_confirm_if_present(page: Page) -> None:
-    """확정 버튼(적용/확인/완료/등록)이 보이면 클릭. 없으면 즉시 적용된 것으로 간주."""
-    for label in _CONFIRM_LABELS:
-        try:
-            btn = page.get_by_role("button", name=label).first
-            if btn.is_visible(timeout=200):
-                btn.click(timeout=1500)
-                log.info("레이아웃 확정 버튼 '%s' 클릭", label)
-                return
-        except Exception:  # noqa: BLE001
-            pass
+# NOTE(2026-06-12): _click_confirm_if_present 제거됨. 레이아웃 모달은 타일 클릭이
+# 즉시 적용+닫힘이라 확정 버튼이 없는데, page 전역 get_by_role("button", name="적용")가
+# Playwright 기본 substring 매칭으로 상단 서식 툴바의 "굵게 굵기 적용" 등을 눌러
+# 그룹마다 본문 서식(굵게→밑줄→취소선…)을 누적 오염시켰다. 확정 클릭 자체가 불필요하고
+# 유해해 삭제. 모달은 _has_visible_dim_modal + wait_for_selector(state="hidden")로 닫힘만 확인.
 
 
 def _handle_layout_popup(page: Page, preferred: str, n_photos: int,
@@ -525,15 +575,21 @@ def _handle_layout_popup(page: Page, preferred: str, n_photos: int,
 
     if applied:
         page.wait_for_timeout(300)
-        # 모달이면 확정 버튼 + 모달이 실제로 사라질 때까지 대기(잔여 오버레이가
-        # 다음 블록 클릭을 삼키는 문제 방지)
+        # 타일 클릭 = 즉시 적용+닫힘(확정 버튼 없음). ⚠️ 여기서 page 전역 확정-버튼
+        # 검색을 하지 않는다 — get_by_role(name="적용")가 상단 서식 툴바의 "…적용"
+        # 버튼을 substring 매칭으로 눌러 본문 서식을 그룹마다 오염시키던 버그였다
+        # (2026-06-12 제거). 투명 dim 모달이 남아 있으면 사라질 때까지만 대기해
+        # 다음 블록의 클릭/파일 다이얼로그가 가로채이지 않게 한다.
         if modal or _has_visible_dim_modal(page):
-            _click_confirm_if_present(page)
             try:
                 page.wait_for_selector(", ".join(_POPUP_SELECTORS),
                                        state="hidden", timeout=3000)
             except Exception:  # noqa: BLE001
                 pass
+        # 읽기 전용 진단(첫 그룹만): 모달 닫힌 직후 서식 툴바 상태를 기록해
+        # 이 수정으로 서식 토글이 더는 안 생기는지 다음 포그라운드 실행에서 확인.
+        if force_dump:
+            _dump_format_toolbar_state(page, tag="after-first-group-modal-close", full=True)
     else:
         log.warning("선호 레이아웃 '%s' 옵션을 찾지 못함 -> 기본값 유지(폴백)", preferred)
         _dump_group_chooser_state(page, tag="post", n_photos=n_photos,
@@ -643,7 +699,7 @@ def upload_group_individually(page: Page, frame: Frame, sel: dict,
 # ---------------------------------------------------------------------------
 
 def upload_image(page: Page, frame: Frame, sel: dict, image_paths: list[Path],
-                 wait_ms: int = 3500, *, group_layout: str = "슬라이드",
+                 wait_ms: int = 3500, *, group_layout: str = "콜라주",
                  group_upload_mode: str = "group",
                  layout_popup_budget_ms: int = 4000,
                  save_screenshots: bool = True,
@@ -654,7 +710,7 @@ def upload_image(page: Page, frame: Frame, sel: dict, image_paths: list[Path],
     image_paths 1개 -> 단독 사진
     image_paths 2개 이상 -> 그룹(슬라이드/콜라주/개별)
 
-    group_layout: 선호 그룹 레이아웃("슬라이드" 기본). layout.json image 블록의
+    group_layout: 선호 그룹 레이아웃("콜라주" 기본; 슬라이드 금지). layout.json image 블록의
         block["layout"] 값을 naver_editor 가 여기로 전달한다.
     group_upload_mode: "group"(기본) | "individual"(항상 개별 업로드).
     caption: 이미지 캡션(있으면). 캡션/블록 간 Enter 는 이 함수가 책임진다 —
@@ -745,5 +801,11 @@ def upload_image(page: Page, frame: Frame, sel: dict, image_paths: list[Path],
         log.warning("그룹은 정상 삽입됨 — 다만 선호 스타일 '%s' 클릭 실패로 "
                     "기본 스타일 유지(그룹화는 유지됨)", group_layout)
 
+    # 서식 누적 오염의 1차 원인(전역 "적용" 확정-클릭)은 _handle_layout_popup 에서 제거됨.
+    # 여기서는 잔여 방어: ①모달이 아직 떠 있으면 본문 클릭이 가로채여 caret 이 툴바에
+    # 남으므로 먼저 정리 → ②본문 문단으로 caret 이동 → ③그제서야 캡션/Enter.
+    # (Enter 가 포커스된 툴바 버튼을 눌러 서식을 토글하는 2차 경로 차단.)
+    _dismiss_any_popup(page)
+    _focus_body(page, frame, sel)
     _type_caption_and_advance(page, caption)
     log.info("사진 업로드 완료 (그룹 %d장): %s", len(existing), names)

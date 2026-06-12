@@ -27,8 +27,8 @@ publish:
   dry_run: false               # true면 입력만 하고 발행/저장 버튼 누르지 않음
   per_image_wait_ms: 3500      # 이미지 업로드 대기
   # --- 그룹(2장+) 레이아웃 선택 컨트롤 처리 ---
-  group_layout: 슬라이드        # 선호 그룹 레이아웃(슬라이드/콜라주/개별). layout.json 의
-                               #   image 블록에 "layout" 이 있으면 그 값이 우선.
+  group_layout: 콜라주          # ⭐ 그룹은 항상 '콜라주'(사용자 지정, 슬라이드 금지). layout.json 의
+                               #   image 블록에 "layout" 이 있으면 그 값이 우선(드래프트는 콜라주/None 로 쓸 것).
   group_upload_mode: group     # group(기본) | individual. individual 이면 항상 한 장씩
                                #   업로드해 레이아웃 컨트롤 자체를 띄우지 않음(그룹화 X, 행 0%).
                                #   ⚠️ 그룹이 연속 2회 실패하면 자동으로 개별 업로드로 전환됨.

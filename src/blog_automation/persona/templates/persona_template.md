@@ -39,7 +39,7 @@ updated: <YYYY-MM-DD>
 - 최빈 그룹 크기: (예: 2장 → layout.json files 배열 기본 크기)
 - 사진 캡션: (있음/없음. 있으면 톤)
 - 정렬(align): center 고정 (HTML 수집 불가 — 네이버 SmartEditor 기본값)
-- SmartEditor 그룹 레이아웃: 슬라이드 / 콜라주 / 2열 중 (HTML 수집 불가 — 추정 또는 "슬라이드"로 통일)
+- SmartEditor 그룹 레이아웃: 콜라주 고정 (HTML 수집 불가 — 사용자 지정: 그룹은 항상 콜라주, 슬라이드 금지)
 
 ### 3-3. layout.json 작성 가이드
 - 단독 사진: `{"type":"image","file":"파일명.jpg","align":"center"}`
