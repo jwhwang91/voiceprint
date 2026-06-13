@@ -34,6 +34,14 @@ publish:
                                #   ⚠️ 그룹이 연속 2회 실패하면 자동으로 개별 업로드로 전환됨.
   layout_popup_budget_ms: 4000 # 레이아웃 컨트롤 등장 대기 한도(이 시간 지나면 기본값으로 진행)
   save_layout_screenshots: true # 첫 그룹/실패 시 logs/screenshots/ 에 컨트롤 스크린샷 저장(진단용)
+  # --- 대표 이미지(썸네일) ---
+  # 네이버 기본: '첫 이미지'가 썸네일. 그래서 대표로 쓸 단독 사진을 layout.json 의 '첫 이미지
+  # 블록'에 두면 클릭 없이도 대표가 된다(가장 안전 — 임시저장에도 그대로 보존).
+  # 아래는 '대표가 첫 이미지가 아닐 때' 에디터에서 [대표] 버튼을 직접 클릭할지 여부.
+  #   false(기본): 클릭 안 함 → 네이버 기본(첫 이미지)이 썸네일. 첫 실행에서
+  #     logs 의 [REPRESENTATIVE_DUMP]/스크린샷으로 대표 버튼 DOM 을 확정하고
+  #     selectors.yaml 의 write.representative_button 을 채운 뒤 true 로 켜는 것을 권장.
+  enforce_representative_click: false
 
 engage:
   # 자동 답방(품앗이): 내 글에 댓글 단 사람 블로그를 방문해 체류 후 댓글.

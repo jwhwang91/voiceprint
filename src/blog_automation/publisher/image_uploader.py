@@ -76,19 +76,28 @@ _CONFIRM_LABELS = ("적용", "완료", "확인", "등록")
 # "사진 첨부 방식" 팝업에서 내 PC 업로드 버튼 텍스트 후보
 _PC_UPLOAD_LABELS = ("내 PC에서", "내 PC에서 추가", "PC에서", "직접 올리기")
 
+# 대표 이미지(썸네일) 지정용 라벨.
+# ⚠️ '대표'는 '적용'보다도 더 위험한 짧은 토큰이다('대표 이미지 설정', 라이브러리/발행 패널,
+#    툴팁 등과 substring 매칭 위험). 절대 page/frame 전역 get_by_text/get_by_role(name="대표")로
+#    클릭하지 말 것 — 반드시 '방금 삽입한 se-image 컴포넌트' 범위로 스코프 + exact=True +
+#    가시성/개수 확인 후에만 클릭한다(2026-06-12 '적용' 누수 교훈, _CONFIRM_LABELS 주석 참고).
+_REPRESENTATIVE_LABEL = "대표"
+
 # 연속 그룹 실패 한계 — 초과하면 이번 run 의 남은 그룹은 개별 업로드로 자동 전환
 _GROUP_FAIL_THRESHOLD_DEFAULT = 2
 
 # 모듈 단위 상태(run 시작 시 reset_group_failures() 로 초기화)
 _consecutive_group_failures = 0
 _dumped_first_group = False
+_dumped_first_representative = False
 
 
 def reset_group_failures() -> None:
     """run_publish 시작 시 호출 — 이전 run 상태가 새 run 에 영향 주지 않도록."""
-    global _consecutive_group_failures, _dumped_first_group
+    global _consecutive_group_failures, _dumped_first_group, _dumped_first_representative
     _consecutive_group_failures = 0
     _dumped_first_group = False
+    _dumped_first_representative = False
 
 
 # ---------------------------------------------------------------------------
@@ -386,6 +395,190 @@ def _dump_format_toolbar_state(page: Page, tag: str, *, full: bool = False) -> b
     else:
         log.info("[FORMAT_TOOLBAR_DUMP] tag=%s clean (%d buttons, none active)", tag, len(info))
     return False
+
+
+# ---------------------------------------------------------------------------
+# 대표 이미지(썸네일) 지정  — 방금 삽입한 '단독' 이미지에만, best-effort
+#
+# 설계(adversarial 설계 리뷰 반영):
+#   · 네이버 기본은 '첫 이미지'가 썸네일이므로, 대표=첫 이미지면 naver_editor 가 아예
+#     여기를 호출하지 않는다(클릭 0 = 가장 안전). 이 경로는 '대표가 첫 이미지가 아니라
+#     명시 클릭이 필요'하고 enforce_representative_click=true 인 경우에만 탄다.
+#   · '대표' 클릭은 반드시 '방금 삽입한 se-image 컴포넌트' 범위로 스코프한다(전역 금지).
+#   · 캡션/Enter 는 호출 측이 이미 끝낸 상태에서 호출된다(이미지 비선택). 여기서 이미지를
+#     다시 선택해 [대표] 오버레이를 띄우고 클릭한 뒤, 본문으로 caret 을 복귀시킨다 →
+#     모듈 불변식(캡션은 upload_image 가 소유)과 충돌하지 않는다.
+#   · 셀렉터 미확정이면(스코프에서 '대표' 미발견) 클릭하지 않고 진단만 남긴다.
+# ---------------------------------------------------------------------------
+
+def _last_image_component(frame: Frame, sel: dict):
+    """방금 삽입한(=마지막) 단독 이미지 컴포넌트 Locator. 못 찾으면 None."""
+    comp_sel = sel["write"].get("image_component") or ".se-component.se-image"
+    try:
+        loc = frame.locator(comp_sel)
+        n = loc.count()
+        if n > 0:
+            return loc.nth(n - 1)
+    except Exception:  # noqa: BLE001
+        pass
+    return None
+
+
+def _dump_representative_state(page: Page, frame: Frame, sel: dict, tag: str,
+                              save_screenshot: bool = True) -> None:
+    """대표 버튼 DOM 을 '읽기만' 한다(클릭/hover 등 상태 변경 절대 없음).
+
+    로그는 모두 '[REPRESENTATIVE_DUMP]' 접두사 — 첫 실제 실행에서 이 출력과 스크린샷으로
+    selectors.yaml 의 write.representative_button 을 확정한다.
+    """
+    try:
+        log.info("[REPRESENTATIVE_DUMP] ===== begin tag=%s =====", tag)
+        comp = _last_image_component(frame, sel)
+        html = ""
+        if comp is not None:
+            try:
+                html = comp.evaluate("e => e.outerHTML")
+            except Exception:  # noqa: BLE001
+                pass
+        log.info("[REPRESENTATIVE_DUMP] se-image outerHTML=%s",
+                 (html or "NO_COMPONENT")[:4000].replace("\n", " "))
+
+        # 스코프(컴포넌트) 내 '대표' 후보 — 읽기 전용 카운트/가시성만.
+        hits = []
+        for css in ('text=대표', f'[aria-label*="{_REPRESENTATIVE_LABEL}"]',
+                    f'[title*="{_REPRESENTATIVE_LABEL}"]'):
+            try:
+                loc = comp.locator(css) if comp is not None else page.locator(css)
+                c = loc.count()
+                vis = False
+                if c:
+                    try:
+                        vis = loc.first.is_visible(timeout=200)
+                    except Exception:  # noqa: BLE001
+                        pass
+                hits.append({"css": css, "count": c, "visible": vis})
+            except Exception:  # noqa: BLE001
+                pass
+        log.info("[REPRESENTATIVE_DUMP] 대표_candidates(scoped=%s)=%r", comp is not None, hits)
+
+        if save_screenshot:
+            try:
+                ts = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+                shot = str(_screenshots_dir() / f"representative_{tag}_{ts}.png")
+                page.screenshot(path=shot, timeout=4000)
+                log.info("[REPRESENTATIVE_DUMP] screenshot=%s", shot)
+            except Exception as e:  # noqa: BLE001
+                log.warning("[REPRESENTATIVE_DUMP] screenshot failed: %s", e)
+        log.info("[REPRESENTATIVE_DUMP] ===== end tag=%s =====", tag)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("[REPRESENTATIVE_DUMP] dump failed: %s", exc)
+
+
+def _maybe_dump_first_representative(page: Page, frame: Frame, sel: dict,
+                                    save_screenshot: bool = True) -> None:
+    """run 의 '첫 단독 이미지' 삽입 직후 1회만, 읽기 전용으로 대표 DOM 을 남긴다.
+
+    플래그/클릭 여부와 무관하게 찍어 두어, 클릭을 안 하는 기본 경로에서도 다음 실행을
+    위한 셀렉터 확정 근거(컴포넌트 outerHTML+스크린샷)를 확보한다. 선택/hover 를 하지
+    않으므로 caret(캡션 입력 위치)을 건드리지 않는다.
+    """
+    global _dumped_first_representative
+    if _dumped_first_representative:
+        return
+    _dumped_first_representative = True
+    # 셀렉터가 이미 확정(write.representative_button 채워짐)이면 진단 덤프 불필요 —
+    # 매 run 첫 단독 이미지마다 스크린샷을 남기지 않도록 건너뛴다(셀렉터 발굴 단계 전용).
+    if sel["write"].get("representative_button"):
+        return
+    _dump_representative_state(page, frame, sel, tag="first-single",
+                               save_screenshot=save_screenshot)
+
+
+def _click_representative_scoped(comp, sel: dict) -> bool:
+    """se-image 컴포넌트 '범위 안'에서만 [대표] 컨트롤을 찾아 클릭(전역 절대 금지).
+
+    우선순위: ①확정 셀렉터(write.representative_button) ②정확 텍스트 '대표'(exact, 단일)
+    ③컴포넌트 내 aria-label/title 의 '대표'. 어디서도 못 찾으면 False(클릭 안 함).
+    """
+    # 1) 확정 셀렉터(있을 때만) — 컴포넌트 스코프
+    rep_sel = sel["write"].get("representative_button")
+    if rep_sel:
+        try:
+            el = comp.locator(rep_sel).first
+            if el.count() > 0 and el.is_visible(timeout=300):
+                el.click(timeout=2000)
+                log.info("[대표] 클릭(확정 셀렉터=%s)", rep_sel)
+                return True
+        except Exception:  # noqa: BLE001
+            pass
+    # 2) 컴포넌트 범위 내 정확 텍스트 '대표' (exact=True, 정확히 1개일 때만 — 오클릭 방지)
+    try:
+        el = comp.get_by_text(_REPRESENTATIVE_LABEL, exact=True)
+        if el.count() == 1 and el.first.is_visible(timeout=300):
+            el.first.click(timeout=2000)
+            log.info("[대표] 클릭(scoped text='대표', exact)")
+            return True
+    except Exception:  # noqa: BLE001
+        pass
+    # 3) 컴포넌트 범위 내 아이콘 버튼(aria-label/title) — 이미지 단위 스코프라 오탐 위험 낮음
+    for css in (f'button[aria-label*="{_REPRESENTATIVE_LABEL}"]',
+                f'[role="button"][aria-label*="{_REPRESENTATIVE_LABEL}"]',
+                f'[title*="{_REPRESENTATIVE_LABEL}"]'):
+        try:
+            el = comp.locator(css).first
+            if el.count() > 0 and el.is_visible(timeout=300):
+                el.click(timeout=2000)
+                log.info("[대표] 클릭(scoped attr=%s)", css)
+                return True
+        except Exception:  # noqa: BLE001
+            pass
+    return False
+
+
+def _set_representative_image(page: Page, frame: Frame, sel: dict,
+                             save_screenshot: bool = True) -> bool:
+    """방금 삽입한 단독 이미지를 '대표 이미지'(썸네일)로 지정(best-effort, 절대 예외 안 던짐)."""
+    try:
+        comp = _last_image_component(frame, sel)
+        if comp is None:
+            log.warning("[대표] se-image 컴포넌트를 못 찾음 — 대표 클릭 생략(네이버 기본 유지)")
+            return False
+        # 이미지를 클릭해 선택 → 좌상단 [대표] 오버레이 버튼 노출(연구: hover/선택 시에만 보임)
+        try:
+            res = comp.locator(sel["write"].get("image_resource", "img.se-image-resource")).first
+            (res if res.count() > 0 else comp).click(timeout=2500)
+        except Exception:  # noqa: BLE001
+            try:
+                comp.click(timeout=2500)
+            except Exception:  # noqa: BLE001
+                pass
+        page.wait_for_timeout(300)
+
+        # 첫 클릭 시도에서 실제 오버레이 DOM 을 한 번 더 확보(버튼이 보이는 상태)
+        _dump_representative_state(page, frame, sel, tag="pre-click",
+                                   save_screenshot=save_screenshot)
+
+        clicked = _click_representative_scoped(comp, sel)
+        page.wait_for_timeout(250)
+        if clicked:
+            log.info("[대표] 대표 이미지 지정 시도 완료 — 임시저장본에서 썸네일이 바뀌었는지 확인 권장")
+        else:
+            log.warning("[대표] 스코프 범위에서 '대표' 컨트롤 미발견 — 전역 클릭은 금지하므로 생략. "
+                        "logs 의 [REPRESENTATIVE_DUMP]/스크린샷으로 selectors.yaml "
+                        "write.representative_button 을 확정하세요.")
+        # 정리(순서 중요): 먼저 본문으로 caret 복귀 = 이미지 '선택 해제' → 그 다음 dim-modal 정리.
+        # 선택된 이미지 상태에서 _dismiss_any_popup 의 Escape 가 나가면 이미지가 파괴될 수 있다
+        # (모듈 불변식 #2). _focus_body 로 먼저 선택을 풀면 그 위험이 사라진다.
+        _focus_body(page, frame, sel)
+        _dismiss_any_popup(page)
+        return clicked
+    except Exception as exc:  # noqa: BLE001
+        log.warning("[대표] 대표 지정 중 예외(무시): %s", exc)
+        try:
+            _focus_body(page, frame, sel)
+        except Exception:  # noqa: BLE001
+            pass
+        return False
 
 
 # ---------------------------------------------------------------------------
@@ -704,7 +897,8 @@ def upload_image(page: Page, frame: Frame, sel: dict, image_paths: list[Path],
                  layout_popup_budget_ms: int = 4000,
                  save_screenshots: bool = True,
                  group_fail_threshold: int = _GROUP_FAIL_THRESHOLD_DEFAULT,
-                 caption: str | None = None) -> None:
+                 caption: str | None = None,
+                 set_representative: bool = False) -> None:
     """이미지 블록 하나를 처리한다(삽입 + 그룹 레이아웃 + 캡션 + 줄바꿈).
 
     image_paths 1개 -> 단독 사진
@@ -715,6 +909,9 @@ def upload_image(page: Page, frame: Frame, sel: dict, image_paths: list[Path],
     group_upload_mode: "group"(기본) | "individual"(항상 개별 업로드).
     caption: 이미지 캡션(있으면). 캡션/블록 간 Enter 는 이 함수가 책임진다 —
         naver_editor 는 이미지 블록에 대해 따로 캡션/Enter 를 입력하지 않는다.
+    set_representative: True 면 이 '단독' 이미지를 대표(썸네일)로 지정 시도한다(캡션/Enter
+        이후, 본문 caret 복귀까지 _set_representative_image 가 책임). 그룹엔 적용하지 않는다.
+        naver_editor 가 '대표이며 첫 이미지가 아니고 enforce 가 켜진' 경우에만 True 로 넘긴다.
 
     (공개 positional 시그니처 upload_image(page, frame, sel, image_paths, wait_ms) 는
      유지. 나머지는 안전 기본값을 가진 keyword-only 인자다.)
@@ -735,10 +932,23 @@ def upload_image(page: Page, frame: Frame, sel: dict, image_paths: list[Path],
     # 단일 사진 — 레이아웃 컨트롤 없음(기존 동작 보존: caret=캡션 필드 -> 캡션 정상 부착)
     if not is_group:
         if _upload_one(page, frame, sel, file_strs[0], wait_ms):
+            # run 의 첫 단독 이미지에서 1회 읽기전용 대표-DOM 덤프(선택/클릭 없음 → caret 불변)
+            _maybe_dump_first_representative(page, frame, sel, save_screenshot=save_screenshots)
+            # 캡션/Enter 먼저(caret=캡션 필드) → 그 다음 대표 지정(이미지 재선택→클릭→본문 복귀)
             _type_caption_and_advance(page, caption)
-            log.info("사진 업로드 완료 (1장): %s", names)
+            rep_done = False
+            if set_representative:
+                rep_done = _set_representative_image(
+                    page, frame, sel, save_screenshot=save_screenshots)
+            if not set_representative:
+                suffix = ""
+            else:
+                suffix = " [대표지정]" if rep_done else " [대표시도-실패]"
+            log.info("사진 업로드 완료 (1장)%s: %s", suffix, names)
         else:
             log.error("사진 업로드 실패 (모든 시도 소진): %s", names)
+            if set_representative:
+                log.warning("[대표] 대표 사진 삽입 실패 — 더 앞의 이미지 블록이 썸네일이 됩니다: %s", names)
         return
 
     # 그룹 — 모드/자동 강등 판단

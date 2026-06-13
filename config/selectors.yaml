@@ -58,6 +58,17 @@ write:
   # 사진: 상단 툴바의 '사진' 버튼. 파일 input 은 클릭 시 동적 생성 → expect_file_chooser 로 처리
   image_button: ".se-image-toolbar-button"                     # 확인됨
   image_file_input: "input[type=file]"                         # 폴백용
+  # 본문에 삽입된 '단독 이미지 컴포넌트'와 그 안의 실제 이미지(대표 지정 시 클릭해 선택).
+  # post_view 의 발행본 DOM(se-image/se-image-resource)과 같은 se- 계열이나 에디터 캔버스
+  # DOM 은 실측 미확정 → 첫 실행의 [REPRESENTATIVE_DUMP] outerHTML 로 확정 권장.
+  image_component: ".se-component.se-image"                    # TODO: 실측 확인
+  image_resource: "img.se-image-resource"                     # TODO: 실측 확인
+  # 대표 이미지(썸네일) 지정 버튼 — 선택된 이미지 좌상단에 뜨는 '대표' 오버레이.
+  #   null 이면 image_uploader 가 '컴포넌트 범위 내 정확 텍스트 대표(exact)'로 시도한다.
+  #   ⚠️ 절대 전역(get_by_role/get_by_text(name="대표"))으로 쓰지 말 것 — 반드시 위
+  #      image_component 범위로 스코프(짧은 토큰 substring 오클릭 방지, '적용' 누수 교훈).
+  #   첫 실행의 [REPRESENTATIVE_DUMP] 로 정확한 셀렉터를 확정해 여기에 채운다.
+  representative_button: null                                  # TODO: [REPRESENTATIVE_DUMP]로 확정
   # 그룹(2장+) 레이아웃 선택 컨트롤 — ✅ 2026-06-11 실제 발행 실행으로 확정:
   #   · dim-modal 팝업. 제목 "사진 첨부 방식", 부제 "첨부되는 사진들의 레이아웃을 선택할 수 있습니다".
   #   · 옵션 타일 3개: 개별사진 / 콜라주 / 슬라이드 (각 <label>, 가시).

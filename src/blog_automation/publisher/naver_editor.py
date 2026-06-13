@@ -13,7 +13,10 @@ import sys
 
 from ..config import Config, load_selectors
 from ..content.layout_planner import preview
-from ..content.schema import load_layout, validate_layout, get_image_files
+from ..content.schema import (
+    load_layout, validate_layout, get_image_files,
+    representative_block_index, first_image_block_index, representative_warnings,
+)
 from ..logging_setup import get_logger
 from ..utils.browser import browser_context
 from ..utils.files import resolve_images
@@ -45,6 +48,10 @@ def run_publish(cfg: Config, job: str, dry_run: bool = False, yes: bool = False)
     _safe_print("\n===== 발행 미리보기 =====")
     _safe_print(preview(layout))
     _safe_print("=========================\n")
+
+    # 대표 이미지(썸네일) 비치명적 경고 — 발행을 막지 않고 알리기만(사람이 임시저장본에서 확인).
+    for w in representative_warnings(layout):
+        log.warning("대표 이미지: %s", w)
     if not yes:
         try:
             answer = input("이대로 진행할까요? (y/N) ").strip().lower()
@@ -67,6 +74,20 @@ def run_publish(cfg: Config, job: str, dry_run: bool = False, yes: bool = False)
     group_upload_mode = pub.get("group_upload_mode", "group")
     layout_budget_ms = pub.get("layout_popup_budget_ms", 4000)
     save_layout_shots = pub.get("save_layout_screenshots", True)
+
+    # 대표 이미지(썸네일) 처리 계획.
+    #   · 네이버 기본: '첫 이미지'가 썸네일. 대표가 첫 이미지면 클릭 불필요(가장 안전).
+    #   · 대표가 첫 이미지가 아닐 때만 에디터에서 [대표] 버튼 클릭이 필요한데, 그 DOM 이
+    #     아직 미확정이라 enforce_representative_click(기본 false)일 때만 시도한다.
+    rep_idx = representative_block_index(layout)
+    first_img_idx = first_image_block_index(layout)
+    enforce_rep_click = pub.get("enforce_representative_click", False)
+    if rep_idx is not None and rep_idx == first_img_idx:
+        log.info("대표 이미지: 첫 이미지 블록(blocks[%d])이 대표 — 네이버 기본 썸네일과 일치(클릭 불필요)", rep_idx)
+    elif rep_idx is not None and not enforce_rep_click:
+        log.warning("대표 이미지: 대표(blocks[%d])가 첫 이미지가 아님. enforce_representative_click=false 라 "
+                    "에디터 클릭을 생략 → 네이버 기본(첫 이미지)이 썸네일이 됩니다. 대표를 첫 이미지로 "
+                    "배치하거나, 첫 실행의 [REPRESENTATIVE_DUMP] 로 대표 버튼을 확정한 뒤 true 로 켜세요.", rep_idx)
 
     # 이전 run 의 연속 실패/덤프 상태 초기화
     reset_group_failures()
@@ -137,6 +158,9 @@ def run_publish(cfg: Config, job: str, dry_run: bool = False, yes: bool = False)
             elif t == "image":
                 # photos/<카테고리>/ 하위까지 재귀 해석(validate 통과 → 정확히 1개 매치).
                 paths = [resolve_images(photos_dir, f)[0] for f in get_image_files(blk)]
+                # 이 블록이 대표이고, 첫 이미지가 아니며, enforce 가 켜졌을 때만 에디터에서
+                # [대표] 클릭을 시도한다(첫 이미지면 네이버 기본으로 이미 대표 → 클릭 불필요).
+                set_rep = (idx == rep_idx and enforce_rep_click and idx != first_img_idx)
                 # 캡션/블록 간 Enter 는 upload_image 가 소유한다(여기서 따로 입력 X).
                 upload_image(
                     page, frame, sel, paths,
@@ -148,6 +172,7 @@ def run_publish(cfg: Config, job: str, dry_run: bool = False, yes: bool = False)
                     layout_popup_budget_ms=layout_budget_ms,
                     save_screenshots=save_layout_shots,
                     caption=blk.get("caption"),
+                    set_representative=set_rep,
                 )
                 page.wait_for_timeout(200)
             elif t == "tags":
