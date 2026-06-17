@@ -8,6 +8,9 @@ gdown>=5.2
 requests>=2.31
 beautifulsoup4>=4.12
 
+# iPhone HEIC 사진 → JPG 변환 (사진 입력 준비)
+pillow-heif>=0.16
+
 # 설정/환경
 pyyaml>=6.0
 python-dotenv>=1.0
