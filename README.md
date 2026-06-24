@@ -82,6 +82,9 @@ voiceprint/
 ## 설치
 
 요구사항: Python 3.10+, Playwright(Chromium). 그 외 의존성은 `requirements.txt` 참고.
+**영상(MOV/MP4) → GIF 기능을 쓰려면 `ffmpeg` 가 필요합니다**(시스템 도구, pip 아님):
+macOS `brew install ffmpeg`, Ubuntu `sudo apt install ffmpeg`, Windows `winget install ffmpeg`.
+없어도 사진만 쓰는 기존 흐름은 그대로 동작합니다.
 Windows · macOS · Linux 모두 동작합니다(코드는 `pathlib` + UTF-8 기반, OS 의존 코드 없음).
 
 **Windows (PowerShell)**
@@ -156,6 +159,15 @@ prompts/analyze_persona.md 따라 페르소나 분석해줘
 3. (선택) 같은 작업 폴더에 방문 메모 작성 → `data\input\<작업명>\description.txt`
    (가는 길·메뉴·느낌 등 자유롭게. 메모가 있으면 글의 사실 근거가 됩니다.
    **없으면** Claude 가 사진만 보고 글을 씁니다 — 비전 단독 모드.)
+4. (선택) **영상(MOV/MP4)** 도 사진과 같이 `photos/<카테고리>/` 안에 넣으면 됩니다 — 움직이는 컷은
+   글에 **GIF 움짤**로 들어갑니다(아래 2-1.5 / 2-2.5). 안 넣으면 무시됩니다.
+
+**2-1.5. (영상이 있을 때만) 분석용 프레임 추출 (Python)** — ffmpeg 필요
+```powershell
+# 영상에서 토큰-저렴한 썸네일만 뽑아 둠(원본을 Claude 가 통으로 안 보게)
+python main.py video-scan --job <작업명>
+```
+- 산출물: `data/drafts/<작업명>/video/frames/**` + `videos.json`
 
 **2-2. 글·사진배치 작성 (Claude Code)**
 ```text
@@ -163,6 +175,13 @@ prompts/analyze_persona.md 따라 페르소나 분석해줘
 prompts/write_post.md 따라 <작업명> 글 써줘       # 예: 260615_네이다이닝라운지
 ```
 - 산출물: `data/drafts/<작업명>/` 의 `photo_tags.json` · `post.md` · `layout.json`
+  (영상이 있으면 `video_plan.json` 도 — 어떤 영상을 어디서 어디까지 자를지)
+
+**2-2.5. (영상이 있을 때만) GIF 렌더 (Python)** — ffmpeg 필요, **publish 전에 실행**
+```powershell
+# video_plan.json 의 구간을 GIF 로 만들어 photos/_gifs/ 에 저장 → 발행이 사진처럼 픽업
+python main.py video-render --job <작업명>
+```
 
 **2-3. 네이버 발행 (Python)**
 ```powershell

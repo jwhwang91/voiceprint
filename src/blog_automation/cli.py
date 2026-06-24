@@ -28,6 +28,16 @@ def main(argv: list[str] | None = None) -> int:
     fd = sub.add_parser("fetch-doc", help="Google Docs URL에서 포스트 목록 파싱 + 사진 일괄 다운로드")
     fd.add_argument("--url", required=True, help="Google Docs 공개 공유 링크")
 
+    # video-scan: 영상에서 분석용 프레임 추출(토큰 절약 전처리)
+    vs = sub.add_parser("video-scan",
+                        help="photos/ 영상에서 분석용 프레임 추출(Claude 가 구간 선정용)")
+    vs.add_argument("--job", required=True, help="작업명")
+
+    # video-render: video_plan.json 대로 구간을 GIF 로 렌더
+    vr = sub.add_parser("video-render",
+                        help="video_plan.json 의 구간을 GIF 로 렌더 → photos/_gifs/")
+    vr.add_argument("--job", required=True, help="작업명")
+
     # publish: 네이버 새 글 작성/발행
     p = sub.add_parser("publish", help="초고+배치도를 네이버 새 글에 작성")
     p.add_argument("--job", required=True, help="작업명")
@@ -57,6 +67,12 @@ def main(argv: list[str] | None = None) -> int:
     elif args.command == "fetch-doc":
         from .drive.downloader import run_fetch_from_doc
         run_fetch_from_doc(cfg, doc_url=args.url)
+    elif args.command == "video-scan":
+        from .video.prep import run_video_scan
+        run_video_scan(cfg, job=args.job)
+    elif args.command == "video-render":
+        from .video.prep import run_video_render
+        run_video_render(cfg, job=args.job)
     elif args.command == "publish":
         from .publisher.naver_editor import run_publish
         run_publish(cfg, job=args.job, dry_run=args.dry_run, yes=args.yes)

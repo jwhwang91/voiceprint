@@ -17,6 +17,9 @@
   - 사진·메모는 **사용자가 수동**으로 채운다(드라이브 폴더를 ZIP으로 받아 `photos/`에 풀고 `description.txt` 작성). `fetch`/`fetch-doc`(gdown)은 Drive 익명 다운로드 횟수제한으로 배치 시 뒤쪽 폴더가 0장 실패해 더는 기본 경로가 아니다.
   - 사진은 보통 `photos/<카테고리>/` 하위폴더로 분류돼 들어온다. **모든 사진을 재귀로 직접 열어** 태깅하고, **폴더 이름은 카테고리 힌트**로 활용한다. layout.json의 `file`/`files`에는 파일명만 적으면 되며(publish가 재귀 해석), 같은 파일명이 여러 폴더에 있을 때만 `<카테고리>/<파일>`로 구분한다.
   - ⭐ **메모(description.txt)가 없으면** 멈추지 말고 **비전 단독 모드**로 사진만 보고 글을 쓴다(사진에서 확인 안 되는 가격·고유명사는 지어내지 말 것). 상세는 `prompts/write_post.md` §0.
+  - ⭐ **영상(MOV/MP4)이 섞여 있으면** GIF 움짤로 넣는다. 원본 영상을 통으로 열지 말고(토큰 폭증),
+    먼저 `video-scan` 이 뽑은 **프레임**만 보고 "쓸 영상·자를 구간"을 정해 `video_plan.json` 을 쓴 뒤,
+    `video-render` 로 GIF 를 만든다(Python=프레임추출·렌더, 너=구간 선정). 상세는 `prompts/write_post.md` §2.5.
 - 작업:
   1) `photos/*` 를 **직접 열어 분석·태깅**(파일명 순서 의존 금지) → `data/drafts/<job>/photo_tags.json`
   2) 페르소나 말투로 **약 2000자** 본문 작성
@@ -35,8 +38,9 @@
 - ⚠️ 스팸/제재 위험 → 글마다 구체 디테일을 짚어 진심 어린 톤으로.
 
 ## 절대 규칙
-- Python 스크립트(`main.py collect/publish/engage`)는 **사용자가** 실행한다. 너는 산출물 폴더를 읽고 쓰기만 한다.
+- Python 스크립트(`main.py collect/fetch/video-scan/video-render/publish/engage`)는 **사용자가** 실행한다. 너는 산출물 폴더를 읽고 쓰기만 한다.
 - 사진 입력은 **사용자가 수동 ZIP 다운로드**로 `data/input/<job>/photos/`에 넣는다(자동 `fetch` 의존 금지). 사진이 비어 있으면 글쓰기를 멈추고 사용자에게 알린다. `description.txt`(메모)는 **선택** — 없으면 사진만으로 쓰는 **비전 단독 모드**로 진행한다.
+- 영상(MOV/MP4)은 같은 `photos/` 폴더에 섞여 들어온다. **GIF 움짤로만** 글에 넣고(네이버 동영상 첨부 X), 원본 영상을 비전으로 통째 분석하지 마라(`video-scan` 프레임만 본다). 만든 GIF 는 `photos/_gifs/` 에 떨어져 사진과 동일하게 발행된다(`.gif` 는 이미 이미지 취급).
 - `layout.json`은 `publish` 단계가 그대로 파싱하므로 스키마를 정확히 지켜라.
 - 네이버 계정/개인 데이터(`data/` 하위)는 외부로 내보내지 마라.
 
@@ -44,6 +48,7 @@
 - `src/blog_automation/collector/` — 과거 글 수집(Playwright)
 - `src/blog_automation/persona/`   — 분석 헬퍼 + 페르소나 템플릿
 - `src/blog_automation/drive/`     — 드라이브 다운로드(gdown)
+- `src/blog_automation/video/`     — 영상 → GIF(프레임 추출 scan + ffmpeg 렌더 render)
 - `src/blog_automation/content/`   — 배치도 스키마/검증
 - `src/blog_automation/publisher/` — 네이버 새 글 작성(Playwright)
 - `config/selectors.yaml`          — 네이버 DOM 셀렉터(UI 바뀌면 여기만 고침)

@@ -29,21 +29,22 @@
 ## 2) 포스트 작성 & 발행
 
 ### 준비
-1. 사용자에게 **Google Drive 공유 링크**와 **job 이름**(예: `20250609_맛집`)을 묻는다.
-2. 사용자에게 **글 종류**를 묻는다 (맛집방문/제품리뷰/육아/여행/일상 등) — 해당 `personas/<글종류>.md` 를 쓸 것임.
-3. `python main.py fetch --link <링크> --job <job명>` 을 실행해 사진을 `data/input/<job>/photos/` 에 내려받는다.
-4. `data/input/<job>/description.txt` 가 없으면 사용자에게 간단한 글 설명(장소/제품/상황 등)을 입력받아 해당 파일에 저장한다.
+1. 사용자에게 **job 이름**(예: `0624 바오 서울`)과 **글 종류**(맛집방문/제품리뷰/육아/여행/일상 등 — 해당 `personas/<글종류>.md` 사용)를 확인한다. 종류가 불명확하면 사진/메모로 추론하거나 1줄로 묻는다.
+2. 사진·영상 입력을 확인한다. 기본은 **사용자가 수동 ZIP** 으로 `data/input/<job>/photos/`(하위 카테고리 폴더 포함)에 채운다. 비어 있으면 멈추고 안내한다. (드라이브 링크를 주면 `python main.py fetch --url <링크> --job <job명>` 도 가능하나 배치 시 다운로드 횟수 제한 주의.)
+3. `data/input/<job>/description.txt`(메모)는 **선택**. 있으면 사실 근거로, 없으면 사진만 보는 비전 단독 모드로 쓴다(메모를 요구하지 말 것).
+4. ⭐ **영상(MOV/MP4) 자동 감지**: `photos/` 하위에 영상 파일이 있으면 아래 5번에서 GIF 움짤로 처리한다. 없으면 5번은 건너뛴다.
 
 ### 글 작성
-5. `prompts/write_post.md` 의 지시를 따라 본문과 배치도를 작성한다:
-   - `data/drafts/<job>/post.md`
-   - `data/drafts/<job>/layout.json`
-6. 작성 후 체크리스트를 자체 검토한다:
-   - 말투가 페르소나 예시 스니펫과 일치하는가
-   - 사진 배치가 페르소나 패턴과 일치하는가
-   - `layout.json` 의 모든 `image.file` 이 `photos/` 에 실제로 존재하는가
-   - 사진을 하나도 빠뜨리지 않았는가
-7. 초안 요약(제목, 문단 수, 사진 수, 해시태그)을 사용자에게 보여주고 **발행 여부를 확인**한다.
+5. **(영상이 있을 때만) 영상 → GIF** — `prompts/write_post.md` §2.5 절차:
+   1. `python main.py video-scan --job <job명>` 을 실행해 분석용 프레임을 추출한다.
+   2. `data/drafts/<job>/video/frames/` 의 프레임만 보고(원본 영상은 열지 않음) **움직이는 컷만** 선별, 자를 구간(start/duration)을 정해 `data/drafts/<job>/video_plan.json` 을 작성한다.
+   3. `python main.py video-render --job <job명>` 을 실행해 GIF 를 `photos/_gifs/` 에 만든다(발행 전 반드시 실행 — 안 하면 GIF 파일이 없어 검증 실패).
+6. `prompts/write_post.md` 의 지시를 따라 본문과 배치도를 작성한다 — 사진 태깅 + (있으면) GIF 를 동작에 맞는 위치에 단독 블록으로 배치:
+   - `data/drafts/<job>/photo_tags.json` · `post.md` · `layout.json` (영상 있으면 `video_plan.json` 도)
+7. 작성 후 체크리스트를 자체 검토하고, 초안 요약(제목, 문단 수, 사진 수, **GIF 수**, 해시태그)을 사용자에게 보여주고 **발행 여부를 확인**한다:
+   - 말투가 페르소나 스니펫과 일치 / 사진·GIF 배치가 페르소나 패턴과 일치
+   - `layout.json` 의 모든 `image.file` 이 `photos/`(GIF 는 `photos/_gifs/`)에 실제로 존재
+   - 사진을 빠뜨리지 않았는가 / GIF 를 대표·콜라주에 넣지 않았는가
 
 ### 발행 (자가 치유 포함)
 8. `python main.py publish --job <job명>` 을 실행한다.
