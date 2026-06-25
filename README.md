@@ -61,7 +61,10 @@ voiceprint/
 ├── main.py                       # CLI 진입점
 ├── config/
 │   ├── settings.yaml             # 전역 설정(경로·브라우저·발행·답방 등)
-│   └── selectors.yaml            # 네이버 DOM 셀렉터 (UI 바뀌면 여기만 고침)
+│   ├── selectors.yaml            # 네이버 DOM 셀렉터 (UI 바뀌면 여기만 고침)
+│   └── blog_growth.yaml          # (선택) SEO 레이어 설정(점수 가중치·한도·API 토글)
+├── scripts/
+│   └── init_blog_growth_db.py    # (선택) SEO 성과 DB 초기화
 ├── prompts/                      # Claude Code 가 따르는 지시서
 │   ├── analyze_persona.md
 │   ├── write_post.md
@@ -74,8 +77,9 @@ voiceprint/
 │   ├── content/                  # 배치도 스키마 + 검증
 │   ├── publisher/                # 네이버 SmartEditor 발행 (Playwright)
 │   ├── engage/                   # 자동 답방 댓글
+│   ├── seo/                      # (선택) Naver Blog Growth Agent — 키워드/제목/태그 전략
 │   └── utils/                    # 브라우저 팩토리·파일 헬퍼
-├── data/                         # 로컬 전용: collected / input / drafts / engage / auth
+├── data/                         # 로컬 전용: collected / input / drafts / engage / auth / blog_growth
 └── logs/                         # 실행 로그 + 그룹 레이아웃 스크린샷
 ```
 
@@ -210,6 +214,40 @@ python main.py engage run --job 답방_<날짜>
 python main.py engage run --job 답방_<날짜> --go
 ```
 > 약관상 계정 정지 위험 → 기본 dry-run. 소량·느린 간격으로만 사용하세요.
+
+### 4) SEO 전략 (선택) — Naver Blog Growth Agent
+
+글을 쓰기 **전에** 검색 유입이 높은 **키워드·제목·태그 전략**을 결정해 `SEO_BRIEF.md` 로 만들어 두는
+부가 레이어입니다. **기존 글쓰기 흐름을 바꾸지 않습니다** — 브리프가 있으면 작성 단계(2-2)가
+이를 반영하고, 없으면 그냥 페르소나대로 씁니다. **자동 발행은 절대 하지 않습니다(임시저장까지만).**
+
+준비물: `.env` 에 네이버 Open API 키(`NAVER_CLIENT_ID`/`NAVER_CLIENT_SECRET`)를 채웁니다.
+키가 없으면 크롤링 폴백으로 완만히 동작하고, 검색광고 API(`NAVER_SEARCHAD_*`)는 비어 있으면 자동 skip 됩니다.
+
+```powershell
+# (1회) 성과 DB 초기화
+python main.py seo-init-db
+# (1회/주기) 과거 수집글을 성과 DB(posts)에 적재 — 내 블로그가 강한 키워드 학습용
+python main.py seo-import-posts --id <블로그ID>
+
+# (작업별) 키워드 조사 → SEO_BRIEF.md / SEO_REPORT.md 생성
+python main.py seo-research-keywords --job <작업명>     # 키워드만 조사(선택)
+python main.py seo-generate-brief    --job <작업명>     # 전략 브리프 생성 ⭐
+```
+```text
+# (Claude Code) 글쓰기 — SEO_BRIEF.md 가 있으면 자동으로 반영(없으면 기존대로)
+prompts/write_post.md 따라 <작업명> 글 써줘
+```
+```powershell
+# (작성 후, 선택) 키워드 남용·길이·가로선 등 기계 품질검사
+python main.py seo-quality-check --job <작업명>
+# (발행 후, 선택) 1/3/7/30일 조회수·검색유입 회수 → 다음 글 전략에 학습
+python main.py collect-outcomes --days 7
+```
+- 산출물: `data/drafts/<작업명>/SEO_BRIEF.md`(작성 프롬프트에 주입) · `SEO_REPORT.md`(사람 검토용)
+- 우선순위: **① 사진/영상 사실 → ② 페르소나 말투 → ③ SEO 전략 → ④ 자연스러운 문체.**
+  SEO 는 ①②를 깨지 않습니다(키워드 욱여넣기·낚시 제목·날조 금지).
+- 설정: `config/blog_growth.yaml`(점수 가중치·후보/태그 한도·품질 기준), 토글은 `.env` 의 `NAVER_KEYWORD_USE_*`.
 
 ### 산출물 형식 — `layout.json`
 

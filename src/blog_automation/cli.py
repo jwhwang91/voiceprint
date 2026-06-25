@@ -11,7 +11,7 @@ log = get_logger()
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="blog-automation", description="네이버 블로그 자동화")
-    sub = parser.add_subparsers(dest="command", required=True)
+    sub = parser.add_subparsers(dest="command", required=False)
 
     # collect: 과거 글 수집 (requests 기반, 로그인 불필요)
     c = sub.add_parser("collect", help="네이버 과거 글 수집(페르소나 학습용)")
@@ -55,7 +55,51 @@ def main(argv: list[str] | None = None) -> int:
     er.add_argument("--go", action="store_true",
                     help="실제 댓글 등록(미지정 시 dry-run: 체류만)")
 
+    # ── SEO / Blog Growth (선택 레이어 — 기존 파이프라인 '앞단'. 기본 동작은 그대로) ──
+    sub.add_parser("seo-init-db", help="blog_growth SQLite DB 초기화")
+
+    si = sub.add_parser("seo-import-posts",
+                        help="수집된 과거글(data/collected/<id>)을 growth DB(posts) 에 적재")
+    si.add_argument("--id", required=True, help="블로그 주소 아이디(예: cloudy43_)")
+
+    sr = sub.add_parser("seo-research-keywords",
+                        help="입력 job 의 키워드 후보 조사(네이버 Open API/크롤링 폴백)")
+    sr.add_argument("--job", required=True, help="작업명")
+
+    sg = sub.add_parser("seo-generate-brief",
+                        help="SEO 전략 브리프(data/drafts/<job>/SEO_BRIEF.md·SEO_REPORT.md) 생성")
+    sg.add_argument("--job", required=True, help="작업명")
+
+    sq = sub.add_parser("seo-quality-check",
+                        help="작성된 post.md 를 brief 기준으로 기계 품질검사")
+    sq.add_argument("--job", required=True, help="작업명")
+
+    co = sub.add_parser("collect-outcomes", help="발행 후 성과 회수(post_outcomes 갱신)")
+    co.add_argument("--days", type=int, default=7, help="회수 기준 일수(보통 1/3/7/30)")
+    co.add_argument("--blog-id", default=None, help="블로그 주소 아이디 override(미지정 시 settings)")
+
+    # app: 데스크톱 앱 실행/포커스 (인자 없이 main.py 실행해도 이게 돈다)
+    sub.add_parser("app", help="데스크톱 앱(Voiceprint Studio) 실행/포커스")
+
+    # inspect-dom: 자가치유용 라이브 DOM 조회(앱 안 네이버 화면에 CDP 로 붙어 셀렉터 진단)
+    idom = sub.add_parser("inspect-dom",
+                          help="라이브 DOM 조회(셀렉터 자가치유) — 어느 셀렉터가 깨졌는지/대체 후보 확인")
+    idom.add_argument("--selector", default=None, help="이 셀렉터의 매칭 수/상세")
+    idom.add_argument("--text", default=None, help="이 텍스트를 가진 보이는 요소 찾기(예: 발행)")
+    idom.add_argument("--list", dest="list_kind", default=None,
+                      help="요소 나열: buttons|inputs|editable|links|interactive(또는 임의 CSS)")
+    idom.add_argument("--html", default=None, help="이 셀렉터 첫 매칭의 outerHTML")
+    idom.add_argument("--section", default=None, help="건강검진 섹션 한정(기본: write,login)")
+    idom.add_argument("--editor", action="store_true", help="먼저 에디터(postwrite)로 이동 후 검진")
+    idom.add_argument("--goto", default=None, help="먼저 이 URL 로 이동 후 검진")
+    idom.add_argument("--blog-id", default=None, help="블로그 주소 아이디 override")
+
     args = parser.parse_args(argv)
+    if not args.command or args.command == "app":
+        # 인자 없이 실행 = 데스크톱 앱 실행/포커스 (CLI 도움말은 python main.py -h).
+        from .tools.launch_app import run_app
+        run_app()
+        return 0
     cfg = load_config()
 
     if args.command == "collect":
@@ -83,4 +127,33 @@ def main(argv: list[str] | None = None) -> int:
         elif args.engage_cmd == "run":
             from .engage.commenter import run_engage
             run_engage(cfg, job=args.job, go=args.go)
+    # ── SEO / Blog Growth (lazy import: leaf 모듈 문제가 기존 커맨드에 영향 주지 않게) ──
+    elif args.command == "seo-init-db":
+        from .seo.pipeline import run_init_db
+        run_init_db()
+    elif args.command == "seo-import-posts":
+        from .seo.config import load_growth_config
+        from .seo.pipeline import run_import_posts
+        run_import_posts(cfg, load_growth_config(), blog_id=args.id)
+    elif args.command == "seo-research-keywords":
+        from .seo.config import load_growth_config
+        from .seo.pipeline import run_research_keywords
+        run_research_keywords(cfg, load_growth_config(), job=args.job)
+    elif args.command == "seo-generate-brief":
+        from .seo.config import load_growth_config
+        from .seo.pipeline import run_generate_brief
+        run_generate_brief(cfg, load_growth_config(), job=args.job)
+    elif args.command == "seo-quality-check":
+        from .seo.config import load_growth_config
+        from .seo.pipeline import run_quality_check
+        run_quality_check(cfg, load_growth_config(), job=args.job)
+    elif args.command == "collect-outcomes":
+        from .seo.config import load_growth_config
+        from .seo.outcome_tracker import collect_outcomes
+        collect_outcomes(cfg, load_growth_config(), days=args.days, blog_id=args.blog_id)
+    elif args.command == "inspect-dom":
+        from .tools.inspect_dom import run_inspect_dom
+        run_inspect_dom(cfg, selector=args.selector, text=args.text, list_kind=args.list_kind,
+                        html=args.html, section=args.section, editor=args.editor,
+                        goto=args.goto, blog_id=args.blog_id)
     return 0

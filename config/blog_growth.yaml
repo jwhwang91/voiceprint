@@ -1,0 +1,62 @@
+# ─────────────────────────────────────────────
+# Naver Blog Growth Agent — SEO/키워드/성과 분석 레이어 설정
+#   코드에서 src/blog_automation/seo/config.py 로 로드된다.
+#   여기 값 + 코드 기본값 + .env 플래그가 합쳐져 GrowthConfig 로 제공된다.
+#   ⚠️ 실제 API key 는 절대 여기 넣지 말 것 — .env 에서만 읽는다.
+# ─────────────────────────────────────────────
+
+blog_growth:
+  enabled: true
+  db_path: "data/blog_growth/blog_growth.db"
+
+seo:
+  enabled: true
+  max_keyword_candidates: 80
+  max_selected_secondary_keywords: 5
+  max_tags: 10
+  max_title_candidates: 10
+  max_quality_retry: 2
+  # SEO 산출물 위치: 기존 작성 파이프라인이 읽는 drafts/<job>/ 아래에 둔다.
+  output_subdir: ""          # 비우면 data/drafts/<job>/ 바로 아래(SEO_BRIEF.md/SEO_REPORT.md)
+
+naver_api:
+  use_open_api: true
+  use_search_blog_api: true
+  use_datalab_search_api: true
+  use_datalab_shopping_api: true
+  use_searchad_api: false        # credential 모두 있을 때만 실제 사용(아래 client 가 재확인)
+  use_crawling_fallback: true
+
+  # API URL 은 .env 의 변수명을 가리킨다(값이 아니라 '변수명').
+  search_blog_api_url_env: "NAVER_SEARCH_BLOG_API_URL"
+  datalab_search_api_url_env: "NAVER_DATALAB_SEARCH_API_URL"
+  datalab_shopping_api_url_env: "NAVER_DATALAB_SHOPPING_API_URL"
+
+  request_timeout_seconds: 15
+  search_blog_display: 20         # Blog Search API 한 번에 가져올 결과 수
+  trend_lookback_months: 12       # DataLab 트렌드 조회 기간(개월)
+  keyword_cache_fresh_days: 7     # keyword_research 캐시를 재사용할 최대 신선도(일)
+
+crawler:
+  fallback_enabled: true
+  min_delay_seconds: 3
+  max_delay_seconds: 8
+  daily_keyword_limit: 300
+  max_search_pages_per_keyword: 3
+  save_html_snapshots_on_failure: true
+  sanitize_snapshots: true
+  failure_log_dir: "logs/seo_crawler_failures"
+
+scoring:
+  search_demand_weight: 0.25
+  opportunity_weight: 0.25
+  my_blog_fit_weight: 0.25
+  content_fit_weight: 0.15
+  seasonality_weight: 0.10
+
+quality_guard:
+  min_score_to_pass: 80
+  max_primary_keyword_repeats: 4
+  max_secondary_keyword_repeats: 3
+  min_body_length_chars: 1500
+  max_body_length_chars: 8000

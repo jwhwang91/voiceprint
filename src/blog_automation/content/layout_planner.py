@@ -34,6 +34,10 @@ def preview(layout: dict[str, Any]) -> str:
                 else:
                     star = ""
                 lines.append(f"  [1] {blk.get('file', '?')}{grp}{cap}{star}")
+        elif t == "place":
+            label = blk.get("name") or blk.get("query", "?")
+            addr = f' ({blk["address"]})' if blk.get("address") else ""
+            lines.append(f"  📍 {label}{addr}")
         elif t == "tags":
             lines.append(f"  # {' '.join('#' + x for x in blk.get('items', []))}")
         elif t == "heading":

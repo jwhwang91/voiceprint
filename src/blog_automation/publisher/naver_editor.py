@@ -23,6 +23,7 @@ from ..utils.files import resolve_images
 from .image_uploader import (
     upload_image, reset_group_failures, _focus_body, _dump_format_toolbar_state,
 )
+from .place_inserter import insert_place
 from ..collector import naver_login
 
 log = get_logger()
@@ -174,6 +175,10 @@ def run_publish(cfg: Config, job: str, dry_run: bool = False, yes: bool = False)
                     caption=blk.get("caption"),
                     set_representative=set_rep,
                 )
+                page.wait_for_timeout(200)
+            elif t == "place":
+                # 네이버 '장소(지도)' 카드. 실패해도 비치명적(글 발행은 계속).
+                insert_place(page, frame, sel, blk)
                 page.wait_for_timeout(200)
             elif t == "tags":
                 tag_text = " ".join("#" + x for x in blk.get("items", []))

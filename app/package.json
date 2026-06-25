@@ -1,0 +1,22 @@
+{
+  "name": "voiceprint-studio",
+  "version": "0.0.1",
+  "private": true,
+  "description": "버튼으로 굴리는 블로그 자동화 — 사용자가 직접 로그인한 Claude Code 위에 얹은 데스크톱 셸 (v0 프로토타입)",
+  "main": "src/main.js",
+  "scripts": {
+    "start": "electron .",
+    "rebuild": "electron-rebuild -f -w node-pty",
+    "fix-electron": "node scripts/ensure-electron.js",
+    "postinstall": "electron-rebuild -f -w node-pty && node scripts/ensure-electron.js"
+  },
+  "devDependencies": {
+    "@electron/rebuild": "^3.7.0",
+    "electron": "^33.2.0"
+  },
+  "dependencies": {
+    "@xterm/addon-fit": "^0.10.0",
+    "@xterm/xterm": "^5.5.0",
+    "node-pty": "^1.0.0"
+  }
+}

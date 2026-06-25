@@ -27,11 +27,15 @@ LAYOUT_SCHEMA: dict[str, Any] = {
         {"type": "text", "content": "다음 문단..."},
         {"type": "image", "files": ["photo_02.jpg", "photo_03.jpg"],
          "align": "center", "tag": "메뉴"},   # files = 그룹(콜라주)
+        # place = 네이버 '장소(지도)' 카드. query 를 장소 검색창에 쳐서 첫 결과를 삽입.
+        # 상호는 Claude 가 웹검색으로 정식 지점명·주소를 확정해 넣는다(prompts/write_post.md §3.5).
+        {"type": "place", "query": "바오 서울 성수",
+         "name": "바오 서울", "address": "서울 성동구 …(검토용)"},
         {"type": "tags", "items": ["맛집", "성수동맛집"]},
     ],
 }
 
-VALID_BLOCK_TYPES = {"text", "image", "tags", "heading", "quote"}
+VALID_BLOCK_TYPES = {"text", "image", "tags", "heading", "quote", "place"}
 
 
 def load_layout(drafts_dir: Path, job: str) -> dict[str, Any]:
@@ -74,6 +78,10 @@ def validate_layout(layout: dict[str, Any], photos_dir: Path) -> list[str]:
                         f"layout.json 에 '<카테고리>/{f}' 처럼 폴더를 포함해 지정하세요.")
         if t == "text" and not blk.get("content"):
             errors.append(f"blocks[{i}]: text 블록이 비어 있음")
+        if t == "place":
+            q = blk.get("query")
+            if not (isinstance(q, str) and q.strip()):
+                errors.append(f"blocks[{i}]: place 블록에 'query'(장소 검색어) 없음")
     return errors
 
 

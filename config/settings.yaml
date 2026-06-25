@@ -23,6 +23,9 @@ collect:
   request_delay_ms: 1500       # 글 사이 사람처럼 텀
 
 publish:
+  blog_id: cloudy43_           # 글쓰기 URL 용 '블로그 주소 아이디'. 로그인 ID(cloudy9191)와 다름!
+                               #   미설정 시 naver_id(cloudy9191)로 폴백 → /cloudy9191/postwrite 가
+                               #   프롤로그로 리다이렉트돼 에디터(제목영역)가 안 떠 타임아웃. (engage.my_blog_id 와 동일)
   save_as_draft: true          # true면 '임시저장'까지만(안전). false면 실제 발행 시도
   dry_run: false               # true면 입력만 하고 발행/저장 버튼 누르지 않음
   per_image_wait_ms: 3500      # 이미지 업로드 대기

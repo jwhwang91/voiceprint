@@ -76,8 +76,35 @@ write:
   #   image_uploader.py 가 '라벨(개별/콜라주/슬라이드) 가시성'으로 탐지 + 타일 클릭으로 처리하므로
   #   여기 셀렉터는 따로 필요 없다(라벨/토큰은 image_uploader.py 의 _LAYOUT_CHOICES 에서 관리).
   #   네이버가 UI 바꿔 라벨이 달라지면 _LAYOUT_CHOICES / _ALL_LAYOUT_LABELS 를 고친다.
+  # 장소(지도) 카드 — 상단 툴바 '장소' 버튼 → 검색 팝업 → 결과 선택 → 삽입.
+  #   네 셀렉터 모두 실측 미확정(null). null 이면 place_inserter.py 가 라벨/접근성 이름
+  #   기반 폴백으로 best-effort 시도하고, 첫 실행에서 [PLACE_DUMP] 로 실제 툴바·팝업 DOM 을
+  #   남긴다 → 그 출력으로 아래 네 값을 확정해 채운다.
+  place_button: 'button[data-name="map"]'   # 확인됨(라이브 DOM): 툴바 '장소' 버튼. 폴백은 title/aria만 봐서 실패(이 버튼은 title="" + 이름이 textContent라 매칭 안 됨). data-name=map 이 해시변동에 견고.
+  place_search_input: null      # TODO: 장소 검색 입력창
+  place_result_item: null       # TODO: 검색 결과 항목(클릭 대상)
+  place_confirm_button: null    # TODO: 결과 삽입/확인 버튼(없는 UI면 결과 클릭만으로 삽입)
   # 저장/발행 (상단 우측). 확인됨: save_btn__/publish_btn__ + 해시
   save_draft_button: '[class*="save_btn"]'                     # 확인됨: 임시'저장'
   publish_open_button: '[class*="publish_btn"]'                # 확인됨: '발행' 패널 열기
   # '발행' 클릭 시 뜨는 설정 패널의 최종 발행 버튼 — 패널 열어야 보임(첫 발행 때 확정 예정)
   publish_confirm_button: '[class*="confirm_btn"]'             # TODO: 발행 패널에서 최종 확인 필요
+
+blog_stats:
+  # 내 블로그 통계(관리자) 화면 — SEO 성과 회수(blog_stats_crawler)용.
+  #   ⚠️ 로그인은 기존 ensure_login(사용자 세션) 재사용. 캡차 우회 금지.
+  #   ⚠️ 실제 DOM 미확정 → 아래 대부분 null/TODO. null 이면 crawler 가 sanitize 된 HTML
+  #      스냅샷 + 스크린샷을 logs/seo_crawler_failures/ 에 남긴다(self-healing). 그 출력으로
+  #      여기 값을 확정해 채운다(place_button/representative_button 과 동일한 패턴).
+  stats_home_url: "https://blog.naver.com/BlogStatsHome.naver"   # TODO: 실측 확인(통계 홈)
+  visitor_stats_url: null         # TODO: 방문자/조회수 통계 화면 URL
+  inflow_search_url: null         # TODO: 유입분석(검색 유입 키워드) 화면 URL
+  period_selector: null           # TODO: 기간(일/주/월) 선택 컨트롤
+  post_row: null                  # TODO: 글별 통계 행
+  post_title_cell: null           # TODO: 행 내 글 제목
+  post_views_cell: null           # TODO: 행 내 조회수
+  visitor_count: null             # TODO: 방문자 수
+  search_inflow_count: null       # TODO: 검색 유입 수
+  inflow_keyword_row: null        # TODO: 유입 키워드 행
+  inflow_keyword_name: null       # TODO: 유입 키워드 텍스트
+  inflow_keyword_count: null      # TODO: 유입 키워드 횟수

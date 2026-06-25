@@ -29,6 +29,11 @@
   - `data/drafts/<job>/post.md` — 본문(사진 자리는 `{{photo: 파일명}}`)
   - `data/drafts/<job>/layout.json` — `src/blog_automation/content/schema.py` 스키마 배치도
 - 사진 배치는 페르소나 패턴 + 사진 분석 태그를 반드시 반영할 것.
+- ⭐ **장소(지도)**: 방문형 글이면 상호를 **웹검색으로 네이버 플레이스 정식 지점명·주소를 확정**해
+  `place` 블록(`{"type":"place","query":...,"name":...,"address":...}`)을 넣는다. 발행 시 publish 가
+  네이버 '장소' 버튼을 눌러 지도 카드를 본문에 삽입한다. 엉뚱한 지점·날조 주소 금지(모호하면 질문/생략).
+- ⭐ **줄바꿈(모바일 우선)**: 블로그는 모바일로 읽힌다. 페르소나의 줄바꿈/문단 형식을 텍스트 블록
+  `content` 안 `\n` 으로 그대로 재현(블록을 쪼개지 말 것).
 - ⚠️ 대시(`-- — ·`)·구분 기호 금지(네이버가 글 위에 가로선 생성). 텍스트 블록 3개+ 연속 금지.
 
 ### 3) 자동 답방 댓글 생성 — `prompts/write_comments.md`
@@ -37,8 +42,18 @@
 - 출력: `data/engage/<job>/comments.json`
 - ⚠️ 스팸/제재 위험 → 글마다 구체 디테일을 짚어 진심 어린 톤으로.
 
+### 4) (선택) SEO 전략 브리프 소비 — `data/drafts/<job>/SEO_BRIEF.md`
+- SEO 레이어(`src/blog_automation/seo/`, 별도 부가 모듈)가 글쓰기 **앞단**에서 검색 유입이 높은
+  **Primary/Secondary 키워드·추천 제목·태그·검색 의도**를 정해 `SEO_BRIEF.md` 로 만들어 둔다.
+  생성은 **사용자가** `python main.py seo-generate-brief --job <job>` 으로 실행한다(너는 산출물만 소비).
+- 글쓰기(2단계)에서 `data/drafts/<job>/SEO_BRIEF.md` 가 **있으면 반드시 반영**한다. 상세는 `prompts/write_post.md`.
+  - ⚠️ 우선순위: ① 사진/영상 **사실** → ② **페르소나** 말투 → ③ SEO 키워드/제목/태그 → ④ 자연스러운 문체.
+    SEO 가 ①②를 깨지 않는다. 키워드 욱여넣기·낚시 제목·사진과 안 맞는 키워드(브리프의 Avoid)는 금지.
+  - 브리프가 **없으면** 기존대로 페르소나 글쓰기로 진행(멈추지 말 것).
+- ⚠️ SEO 레이어는 **절대 자동 발행하지 않는다**(임시저장까지만). 네이버 통계/크롤링은 사용자 로그인 세션만 쓰고 캡차 우회 금지.
+
 ## 절대 규칙
-- Python 스크립트(`main.py collect/fetch/video-scan/video-render/publish/engage`)는 **사용자가** 실행한다. 너는 산출물 폴더를 읽고 쓰기만 한다.
+- Python 스크립트(`main.py collect/fetch/video-scan/video-render/publish/engage` 및 SEO: `seo-init-db/seo-import-posts/seo-research-keywords/seo-generate-brief/seo-quality-check/collect-outcomes`)는 **사용자가** 실행한다. 너는 산출물 폴더를 읽고 쓰기만 한다.
 - 사진 입력은 **사용자가 수동 ZIP 다운로드**로 `data/input/<job>/photos/`에 넣는다(자동 `fetch` 의존 금지). 사진이 비어 있으면 글쓰기를 멈추고 사용자에게 알린다. `description.txt`(메모)는 **선택** — 없으면 사진만으로 쓰는 **비전 단독 모드**로 진행한다.
 - 영상(MOV/MP4)은 같은 `photos/` 폴더에 섞여 들어온다. **GIF 움짤로만** 글에 넣고(네이버 동영상 첨부 X), 원본 영상을 비전으로 통째 분석하지 마라(`video-scan` 프레임만 본다). 만든 GIF 는 `photos/_gifs/` 에 떨어져 사진과 동일하게 발행된다(`.gif` 는 이미 이미지 취급).
 - `layout.json`은 `publish` 단계가 그대로 파싱하므로 스키마를 정확히 지켜라.
@@ -50,5 +65,7 @@
 - `src/blog_automation/drive/`     — 드라이브 다운로드(gdown)
 - `src/blog_automation/video/`     — 영상 → GIF(프레임 추출 scan + ffmpeg 렌더 render)
 - `src/blog_automation/content/`   — 배치도 스키마/검증
-- `src/blog_automation/publisher/` — 네이버 새 글 작성(Playwright)
+- `src/blog_automation/publisher/` — 네이버 새 글 작성(Playwright). `place_inserter.py` = 장소(지도) 카드 삽입
+- `src/blog_automation/seo/`        — (선택) Naver Blog Growth Agent: 키워드 조사·점수·제목/태그·SEO_BRIEF 생성·성과 회수
 - `config/selectors.yaml`          — 네이버 DOM 셀렉터(UI 바뀌면 여기만 고침)
+- `config/blog_growth.yaml`        — (선택) SEO 레이어 설정(점수 가중치·후보/태그 한도·API 토글)

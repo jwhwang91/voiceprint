@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <link rel="stylesheet" href="../../node_modules/@xterm/xterm/css/xterm.css" />
+  <link rel="stylesheet" href="styles.css" />
+  <title>Voiceprint Studio</title>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">🎙️ Voiceprint Studio <span class="ver">v1</span></div>
+    <div class="top-right">
+      <div id="status-chip" class="chip">claude 확인 중…</div>
+      <button id="btn-settings" class="icon-btn" title="설정(자격증명)">⚙</button>
+    </div>
+  </header>
+
+  <main class="layout">
+    <section class="term-pane">
+      <div id="terminal"></div>
+    </section>
+
+    <aside class="rail">
+      <div class="group">
+        <div class="group-title">세션</div>
+        <button id="btn-claude" class="btn primary">▶ Claude 시작</button>
+        <button id="btn-status" class="btn">/status (과금 확인)</button>
+      </div>
+
+      <div class="group">
+        <div class="group-title">새 글 작성</div>
+        <div class="step">1 · 폴더 만들기 또는 기존 글 선택</div>
+        <input id="job-input" class="text" placeholder="0625 바오 서울" />
+        <button id="btn-newjob" class="btn">+ 폴더 만들기</button>
+        <select id="job-select" class="text select"><option value="">기존 글 불러오기…</option></select>
+        <div class="step">2 · 사진·영상 넣기</div>
+        <div id="dropzone" class="dropzone">
+          <div class="dz-icon">📁</div>
+          <div class="dz-text">여기로 끌어다 놓기</div>
+        </div>
+        <div class="job-current">현재 글: <span id="job-label">없음</span> <span id="file-count" class="file-count"></span></div>
+        <div id="filelist" class="filelist"></div>
+        <div class="step">3 · 작성·발행</div>
+        <button id="btn-write" class="btn go">✍️ 이 글 쓰고 발행</button>
+      </div>
+
+      <div class="group">
+        <div class="group-title">발행 화면 (네이버)</div>
+        <button id="btn-view" class="btn">🌐 네이버 보기</button>
+        <button id="btn-naver-login" class="btn sub">네이버 로그인 (1회)</button>
+      </div>
+
+      <div class="group">
+        <div class="group-title">기타 작업</div>
+        <button id="btn-persona" class="btn sub">페르소나 업데이트</button>
+        <button id="btn-comments" class="btn sub">답방 댓글</button>
+        <button id="btn-blog-menu" class="btn sub">/blog 직접 메뉴</button>
+      </div>
+
+      <div class="group">
+        <div class="group-title">제어</div>
+        <button id="btn-int" class="btn danger">⛔ 중단 (Ctrl-C)</button>
+        <button id="btn-clear" class="btn">화면 지우기</button>
+      </div>
+    </aside>
+  </main>
+
+  <footer id="statusbar" class="statusbar muted">준비됨</footer>
+
+  <!-- 설정 모달 -->
+  <div id="settings-overlay" class="overlay hidden">
+    <div class="modal">
+      <div class="modal-head">
+        <div class="modal-title">설정 · 자격증명</div>
+        <button id="settings-close" class="icon-btn">✕</button>
+      </div>
+      <div class="modal-note" id="enc-note">OS 키체인으로 암호화 저장 — .env 파일을 쓰지 않습니다.</div>
+
+      <div class="modal-body">
+        <div class="sgroup-title">네이버 로그인 <span class="opt">선택</span></div>
+        <div class="sgroup-help">비워두면 앱 안 브라우저에서 <b>수동 로그인(권장)</b> — 자동입력은 캡차가 잦습니다.</div>
+        <label class="field"><span>NAVER_ID</span><input data-key="NAVER_ID" type="text" autocomplete="off" /></label>
+        <label class="field"><span>NAVER_PW</span><input data-key="NAVER_PW" type="password" autocomplete="off" /></label>
+
+        <div class="sgroup-title">네이버 OpenAPI <span class="opt">선택 · SEO</span></div>
+        <label class="field"><span>NAVER_CLIENT_ID</span><input data-key="NAVER_CLIENT_ID" type="password" autocomplete="off" /></label>
+        <label class="field"><span>NAVER_CLIENT_SECRET</span><input data-key="NAVER_CLIENT_SECRET" type="password" autocomplete="off" /></label>
+
+        <div class="sgroup-title">네이버 검색광고 API <span class="opt">선택 · 키워드</span></div>
+        <label class="field"><span>ACCESS_LICENSE</span><input data-key="NAVER_SEARCHAD_ACCESS_LICENSE" type="password" autocomplete="off" /></label>
+        <label class="field"><span>SECRET_KEY</span><input data-key="NAVER_SEARCHAD_SECRET_KEY" type="password" autocomplete="off" /></label>
+        <label class="field"><span>CUSTOMER_ID</span><input data-key="NAVER_SEARCHAD_CUSTOMER_ID" type="text" autocomplete="off" /></label>
+      </div>
+
+      <div class="modal-foot">
+        <div id="settings-msg" class="modal-msg"></div>
+        <button id="settings-save" class="btn primary">저장 후 세션 재시작</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="../../node_modules/@xterm/xterm/lib/xterm.js"></script>
+  <script src="../../node_modules/@xterm/addon-fit/lib/addon-fit.js"></script>
+  <script src="renderer.js"></script>
+</body>
+</html>
