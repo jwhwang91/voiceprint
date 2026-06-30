@@ -21,6 +21,10 @@ contextBridge.exposeInMainWorld('api', {
     ingest: (job, paths) => ipcRenderer.invoke('files:ingest', { job, paths }),
     list: (job) => ipcRenderer.invoke('files:list', job),
   },
+  memo: {
+    get: (job) => ipcRenderer.invoke('memo:get', job),
+    save: (job, text) => ipcRenderer.invoke('memo:save', { job, text }),
+  },
   onboarding: {
     status: () => ipcRenderer.invoke('onboarding:status'),
   },

@@ -18,7 +18,7 @@ from ..content.schema import (
     representative_block_index, first_image_block_index, representative_warnings,
 )
 from ..logging_setup import get_logger
-from ..utils.browser import browser_context
+from ..utils.browser import browser_context, safe_goto
 from ..utils.files import resolve_images
 from .image_uploader import (
     upload_image, reset_group_failures, _focus_body, _dump_format_toolbar_state,
@@ -97,7 +97,7 @@ def run_publish(cfg: Config, job: str, dry_run: bool = False, yes: bool = False)
         naver_login.ensure_login(cfg, page)
 
         # 2) 새 글 작성 화면 진입 (에디터는 iframe 아님 → page 에서 직접 동작)
-        page.goto(sel["write"]["url"].format(blog_id=blog_id))
+        safe_goto(page, sel["write"]["url"].format(blog_id=blog_id))
         main_frame = sel["write"].get("main_frame")
         frame = page
         if main_frame:

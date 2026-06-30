@@ -248,6 +248,60 @@ ipcMain.handle('files:ingest', (_e, { job, paths }) => {
   return { dest, ...stats };
 });
 
+// --- IPC: 메모(description.txt) 읽기/저장 ---
+//   저장 위치는 표준 경로 data/input/<job>/description.txt 로 통일한다.
+//   읽기는 표준 경로가 없으면 job 폴더 전체를 재귀로 뒤져 묻혀 들어온 메모(예: photos/모리몰리,
+//   확장자 없음)를 찾아 보여준다 — 사용자가 모달에서 확인 후 저장하면 표준 경로로 정착된다.
+const _MEMO_SKIP_EXTS = new Set([
+  '.jpg', '.jpeg', '.png', '.webp', '.heic', '.heif', '.gif', '.bmp', '.tiff',
+  '.mov', '.mp4', '.m4v', '.avi', '.mkv', '.webm', '.json', '.zip', '.pdf',
+]);
+function _readTextMemo(file) {
+  try {
+    const buf = fs.readFileSync(file);
+    if (!buf.length || buf.length > 200000 || buf.includes(0)) return '';
+    return buf.toString('utf8');
+  } catch (_) { return ''; }
+}
+function _findMemo(jobDir) {
+  const desc = [], txtmd = [], extless = [];
+  (function walk(d) {
+    let entries;
+    try { entries = fs.readdirSync(d, { withFileTypes: true }); } catch (_) { return; }
+    for (const e of entries) {
+      if (e.name.startsWith('.') || e.name.startsWith('_') || e.name === '__MACOSX') continue;
+      const full = path.join(d, e.name);
+      if (e.isDirectory()) { walk(full); continue; }
+      const ext = path.extname(e.name).toLowerCase();
+      if (_MEMO_SKIP_EXTS.has(ext)) continue;
+      const text = _readTextMemo(full);
+      if (!text.trim()) continue;
+      if (e.name.toLowerCase() === 'description.txt') desc.push(text);
+      else if (ext === '.txt' || ext === '.md') txtmd.push(text);
+      else if (ext === '') extless.push(text);
+    }
+  })(jobDir);
+  return [...desc, ...txtmd, ...extless].join('\n\n').trim();
+}
+ipcMain.handle('memo:get', (_e, job) => {
+  const safe = String(job || '').trim();
+  if (!safe) return { text: '' };
+  const jobDir = path.join(PROJECT_ROOT, 'data', 'input', safe);
+  const std = path.join(jobDir, 'description.txt');
+  try {
+    if (fs.existsSync(std)) return { text: fs.readFileSync(std, 'utf8') };
+  } catch (_) {}
+  return { text: _findMemo(jobDir) };  // 표준 경로 없으면 묻힌 메모라도 찾아서.
+});
+ipcMain.handle('memo:save', (_e, { job, text }) => {
+  const safe = String(job || '').trim();
+  if (!safe) throw new Error('현재 job 없음');
+  const jobDir = path.join(PROJECT_ROOT, 'data', 'input', safe);
+  fs.mkdirSync(jobDir, { recursive: true });
+  fs.writeFileSync(path.join(jobDir, 'description.txt'), String(text || ''), 'utf8');
+  return { ok: true };
+});
+
 // 현재 job 의 photos/ 안 미디어를 재귀로 나열(UI 칩 목록용). HEIC 는 변환된 jpg 가 있으면 숨김.
 const _IMAGE_EXTS = new Set(['.jpg', '.jpeg', '.png', '.webp', '.heic']);
 const _VIDEO_EXTS = new Set(['.mov', '.mp4']);

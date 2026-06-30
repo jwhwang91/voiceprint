@@ -60,6 +60,7 @@ def _placeholder_values(topic: TopicExtraction) -> dict[str, str]:
                 return
 
     put("지역", topic.location, extra.get("지역"), extra.get("location"))
+    put("상호", extra.get("상호"), extra.get("store"), topic.brand)
     put("제품명", topic.product_type, extra.get("제품명"), extra.get("product_type"))
     put("브랜드명", topic.brand, extra.get("브랜드명"), extra.get("brand"))
     put("아이연령", topic.age_group, extra.get("아이연령"), extra.get("age_group"))
@@ -85,15 +86,18 @@ def _fill_template(template: str, vals: dict[str, str]) -> str | None:
 
 
 def _core_terms(topic: TopicExtraction, vals: dict[str, str]) -> list[str]:
-    """주제 핵심 단어(롱테일 결합의 베이스). 지역/제품/브랜드/연령 + detected_topics."""
+    """롱테일 결합의 베이스가 되는 **신뢰 가능한 핵심어만** 반환한다.
+
+    ⚠️ 예전엔 detected_topics(사진 캡션에서 긁은 명사 조각: 외관·내관·소스·통유리·
+       포스터·박스…)를 통째로 베이스에 넣고 수식어와 교차조합했다. 그 결과
+       '외관 비오는날', '소스 아이랑' 같은 **난센스 키워드**가 양산됐다.
+       → 캡션 조각은 제외하고, 지역/상호/제품/브랜드/메뉴/음식/연령 같은
+         확정 신호만 결합 베이스로 쓴다(garbage in 차단).
+    """
     terms: list[str] = []
-    for key in ("지역", "제품명", "브랜드명", "아이연령", "메뉴", "음식"):
+    for key in ("지역", "상호", "제품명", "브랜드명", "아이연령", "메뉴", "음식"):
         if vals.get(key):
             terms.append(vals[key])
-    for t in (topic.detected_topics or []):
-        s = _norm(str(t))
-        if s:
-            terms.append(s)
     return _dedup(terms)
 
 

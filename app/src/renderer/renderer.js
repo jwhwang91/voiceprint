@@ -87,7 +87,11 @@ let currentJob = null;
 const jobLabel = document.getElementById('job-label');
 const dz = document.getElementById('dropzone');
 
-function setJob(name) { currentJob = name; jobLabel.textContent = name; dz.classList.add('armed'); }
+function setJob(name) {
+  currentJob = name; jobLabel.textContent = name; dz.classList.add('armed');
+  // 새 작업으로 전환하면 이전 발행/에디터가 떠 있던 네이버 뷰를 홈으로 초기화(다음 발행이 깨끗하게 시작).
+  try { window.api.naver.home(); } catch (_) {}
+}
 
 // 드롭한 미디어를 칩으로 표시
 const _filelist = document.getElementById('filelist');
@@ -180,10 +184,13 @@ document.getElementById('btn-write').onclick = () => {
   if (!currentJob) { notice('[글쓰기] 먼저 위에서 "+ 폴더 만들기" 하고 사진을 드롭하세요', 33); return; }
   if (!ensureClaude()) return;
   const job = currentJob;
+  // 이전 발행/에디터 화면이 남아있으면 다음 작업을 방해 → 깨끗한 네이버 홈으로 초기화하고 시작.
+  try { window.api.naver.home(); } catch (_) {}
   const instr =
-    `job "${job}" 로 블로그 글을 써서 발행 준비까지 해줘. ` +
-    `사진·영상은 data/input/${job}/photos/ 에 있어. ` +
-    `/blog 의 "2) 포스트 작성 & 발행" 절차 그대로 진행해 ` +
+    `job "${job}" 로 블로그 글을 써서 발행해줘. 사진·영상은 data/input/${job}/photos/ 에 있어. ` +
+    `⭐ 먼저 data/drafts/${job}/post.md 와 layout.json 이 이미 있는지 확인하고, 있으면 ` +
+    `사진 재분석 없이 "이대로 발행할까요, 새로 쓸까요?" 를 물어봐. ` +
+    `없거나 새로 쓰기를 고르면 /blog 의 "2) 포스트 작성 & 발행" 절차대로 진행해 ` +
     `(SEO 브리프 자동 → 사진 태깅 → 본문·배치 작성 → 임시저장/발행, 발행 실패 시 inspect-dom 자가치유).`;
   send(instr + '\r');
   notice(`[글쓰기] "${job}" 작성·발행을 Claude 에 요청했습니다`, 36);
@@ -227,6 +234,41 @@ document.getElementById('settings-save').onclick = async () => {
     notice('[설정] 자격증명 저장 + 세션 재시작 완료', 36);
   } catch (e) {
     settingsMsg.textContent = '실패: ' + e.message;
+  }
+};
+
+// --- 메모 모달 ---
+const memoOverlay = document.getElementById('memo-overlay');
+const memoText = document.getElementById('memo-text');
+const memoMsg = document.getElementById('memo-msg');
+
+async function openMemo() {
+  if (!currentJob) { notice('먼저 "+ 폴더 만들기"로 폴더를 만드세요', 33); return; }
+  document.getElementById('memo-job').textContent = currentJob;
+  memoMsg.textContent = '불러오는 중…';
+  memoText.value = '';
+  try {
+    const { text } = await window.api.memo.get(currentJob);
+    memoText.value = text || '';
+    memoMsg.textContent = text ? '기존 메모를 불러왔어요(편집 후 저장).' : '';
+  } catch (_) { memoMsg.textContent = ''; }
+  memoOverlay.classList.remove('hidden');
+  memoText.focus();
+}
+function closeMemo() { memoOverlay.classList.add('hidden'); }
+
+document.getElementById('btn-memo').onclick = openMemo;
+document.getElementById('memo-close').onclick = closeMemo;
+memoOverlay.addEventListener('click', (e) => { if (e.target === memoOverlay) closeMemo(); });
+
+document.getElementById('memo-save').onclick = async () => {
+  if (!currentJob) { closeMemo(); return; }
+  try {
+    await window.api.memo.save(currentJob, memoText.value);
+    closeMemo();
+    notice(`[메모] "${currentJob}" 메모 저장 완료`, 32);
+  } catch (e) {
+    memoMsg.textContent = '저장 실패: ' + e.message;
   }
 };
 

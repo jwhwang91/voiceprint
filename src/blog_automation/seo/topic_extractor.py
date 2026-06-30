@@ -2,7 +2,8 @@
 
 Claude 가 이미 만들어 둔 산출물을 소비한다:
   - drafts/<job>/photo_tags.json : 비전 태그(photos[].category/subject/group_key)
-  - input/<job>/description.txt  : 사용자 메모(선택 — 비전 단독 모드면 없음)
+  - input/<job>/**              : 사용자 메모(텍스트)를 **재귀로** 찾는다. 이름/위치가
+                                  description.txt 가 아니어도(예: photos/모리몰리) 찾아낸다.
   - input/<job>/photos/*         : 카테고리 하위폴더 이름(카테고리 힌트)
 
 ⭐ 핵심 원칙: **날조 금지**. 사진/메모에서 확인되지 않는 지역·상호·제품명은 비워 둔다(None).
@@ -85,6 +86,22 @@ _AGE_PATTERNS = [
 # 한글 명사 토큰(아주 짧은 조사/숫자 제거용) — detected_topics 보정
 _HANGUL_TOKEN = re.compile(r"[가-힣A-Za-z0-9]+")
 
+# 알려진 지역/상권 토큰(지역 추출 + 상호 추출에서 '지역은 상호 아님' 판별에 공용). 보수적으로.
+_KNOWN_LOCATIONS = [
+    "성수", "연남", "연희", "망원", "합정", "홍대", "이태원", "한남", "압구정",
+    "청담", "신사", "가로수길", "강남", "역삼", "삼성", "잠실", "송파", "여의도",
+    "광화문", "종로", "을지로", "명동", "용산", "마포", "서촌", "북촌", "익선동",
+    "문래", "영등포", "건대", "성수동", "뚝섬", "서울숲", "판교", "분당", "수원",
+    "인천", "부산", "해운대", "광안리", "전주", "강릉", "속초", "제주", "대구",
+    "대전", "광주", "경주", "여수", "춘천", "가평", "양양", "포항", "거제",
+]
+
+# 상호로 보기엔 의미 없는 일반어(폴더명에서 상호 추출 시 제외).
+_STORE_STOPWORDS = {
+    "맛집", "카페", "후기", "리뷰", "방문", "사진", "음식", "메뉴", "데이트",
+    "외식", "점심", "저녁", "브런치", "디저트", "주차", "예약", "웨이팅",
+}
+
 # 토픽으로는 의미 없는 카테고리/일반어(제외)
 _STOPWORD_TOPICS = {
     "기타", "디테일", "정보", "인물상황", "내부", "외관", "사진", "이미지",
@@ -133,7 +150,7 @@ def extract_topics(
 
     # ── 1) 원천 데이터 수집(전부 graceful) ──
     photos = load_photo_tags(drafts_dir / job / "photo_tags.json")
-    memo = _read_memo(input_dir / job / "description.txt")
+    memo = _find_memo(input_dir / job)
     folder_names = _list_photo_subfolders(input_dir / job / "photos")
 
     photo_categories = [str(p.get("category", "")).strip() for p in photos if p.get("category")]
@@ -168,6 +185,11 @@ def extract_topics(
     product_type, brand = _extract_product_and_brand(
         category=category, memo=memo, subjects=subjects, job=job
     )
+    # ⭐ 맛집/여행은 '상호(가게명)'가 1순위 검색어다. 육아템 제품 추출과 별개로,
+    #    job 폴더명·메모·subject 에서 상호를 뽑아 brand 에 채운다(없던 핵심 키워드 복구).
+    store_name = _extract_store_name(category=category, memo=memo, subjects=subjects, job=job)
+    if store_name and not brand:
+        brand = store_name
     content_type = _CONTENT_TYPE_BY_CATEGORY.get(category, "일상")
     target_intents = list(_TARGET_INTENTS_BY_CATEGORY.get(category, _TARGET_INTENTS_BY_CATEGORY["일상"]))
 
@@ -186,6 +208,8 @@ def extract_topics(
         "folder_names": folder_names,
         "has_memo": bool(memo),
     }
+    if store_name:
+        extra["상호"] = store_name
 
     topic = TopicExtraction(
         input_folder=job,
@@ -214,16 +238,79 @@ def extract_topics(
 
 # ───────────────────────── 내부 헬퍼: 원천 데이터 ─────────────────────────
 
+# 메모로 보지 않을 미디어/이진/생성물 확장자(재귀 탐색 시 건너뜀).
+_NON_MEMO_EXTS = {
+    ".jpg", ".jpeg", ".png", ".webp", ".heic", ".gif", ".bmp", ".tiff",
+    ".mov", ".mp4", ".m4v", ".avi", ".mkv", ".webm",
+    ".json", ".zip", ".pdf", ".heif", ".ds_store",
+}
+# 메모 파일 1개 최대 크기(엉뚱한 큰 파일을 메모로 빨아들이지 않게).
+_MEMO_MAX_BYTES = 200_000
+
+
 def _read_memo(path: Path) -> str:
-    """description.txt 를 읽는다(선택 — 없으면 빈 문자열)."""
+    """단일 텍스트 파일을 UTF-8 로 읽는다(못 읽으면 빈 문자열)."""
     try:
-        p = Path(path)
-        if not p.is_file():
-            return ""
-        return p.read_text(encoding="utf-8").strip()
-    except Exception as exc:  # noqa: BLE001
-        log.warning("[topic_extractor] 메모 읽기 실패(%s): %s", path, exc)
+        raw = Path(path).read_bytes()
+    except Exception:  # noqa: BLE001
         return ""
+    if not raw or b"\x00" in raw or len(raw) > _MEMO_MAX_BYTES:
+        return ""  # 빈/이진/과대 파일은 메모 아님
+    try:
+        return raw.decode("utf-8").strip()
+    except UnicodeDecodeError:
+        return ""
+
+
+def _find_memo(job_dir: Path) -> str:
+    """job 폴더 **전체를 재귀**로 뒤져 사용자 메모(텍스트)를 찾는다.
+
+    예전엔 `<job>/description.txt` 한 곳만 봤다. 그런데 드롭으로 들어온 폴더에서는
+    메모가 `photos/모리몰리`(확장자 없음·photos 하위)처럼 엉뚱한 이름·위치에 묻혀
+    들어오기 일쑤라, 멀쩡히 존재하는 메모를 통째로 놓치고 '비전 단독'으로 빠졌다
+    (→ 위치·상호를 못 뽑아 키워드가 쓰레기가 됨).
+
+    개선: job 폴더 아래 모든 텍스트 파일을 찾아 우선순위대로 합친다.
+      ① description.txt(있으면 최우선)  ② 그 외 .txt/.md  ③ 확장자 없는 UTF-8 텍스트
+    `.`/`_` 로 시작하는 파일·폴더(.DS_Store, _gifs 등)와 미디어/이진/생성물은 제외.
+    확장자 없는 파일은 실제 UTF-8 로 디코드될 때만 메모로 인정(이미지 오인 방지).
+    """
+    job_dir = Path(job_dir)
+    if not job_dir.is_dir():
+        return ""
+
+    desc_txt: list[tuple[Path, str]] = []   # ① description.txt
+    txt_md: list[tuple[Path, str]] = []     # ② 기타 .txt/.md
+    extless: list[tuple[Path, str]] = []    # ③ 확장자 없는 텍스트
+
+    for p in sorted(job_dir.rglob("*")):
+        if not p.is_file():
+            continue
+        # 숨김/언더스코어/__MACOSX 경로 제외(경로 어디든 한 segment 라도 걸리면 skip).
+        if any(seg.startswith(".") or seg.startswith("_") or seg == "__MACOSX"
+               for seg in p.relative_to(job_dir).parts):
+            continue
+        ext = p.suffix.lower()
+        if ext in _NON_MEMO_EXTS:
+            continue
+        text = _read_memo(p)
+        if not text:
+            continue
+        if p.name.lower() == "description.txt":
+            desc_txt.append((p, text))
+        elif ext in (".txt", ".md"):
+            txt_md.append((p, text))
+        elif ext == "":
+            extless.append((p, text))
+        # 그 외 알 수 없는 확장자는 보수적으로 무시(오탐 방지).
+
+    chosen = desc_txt + txt_md + extless
+    if not chosen:
+        return ""
+    for p, _ in chosen:
+        log.info("[topic_extractor] 메모 발견: %s", p)
+    # 여러 개면 우선순위 순서로 합쳐 아무 메모도 잃지 않는다.
+    return "\n\n".join(t for _, t in chosen).strip()
 
 
 def _list_photo_subfolders(photos_dir: Path) -> list[str]:
@@ -331,15 +418,7 @@ def _extract_location(*, category: str, memo: str, job: str) -> str | None:
     if category not in ("맛집", "여행"):
         return None
 
-    # 알려진 지역/상권 토큰(자주 등장하는 것만 — 보수적으로). 확장 가능.
-    known = [
-        "성수", "연남", "연희", "망원", "합정", "홍대", "이태원", "한남", "압구정",
-        "청담", "신사", "가로수길", "강남", "역삼", "삼성", "잠실", "송파", "여의도",
-        "광화문", "종로", "을지로", "명동", "용산", "마포", "서촌", "북촌", "익선동",
-        "문래", "영등포", "건대", "성수동", "뚝섬", "서울숲", "판교", "분당", "수원",
-        "인천", "부산", "해운대", "광안리", "전주", "강릉", "속초", "제주", "대구",
-        "대전", "광주", "경주", "여수", "춘천", "가평", "양양", "포항", "거제",
-    ]
+    known = _KNOWN_LOCATIONS
 
     # 1) 메모 우선(가장 신뢰도 높음).
     if memo:
@@ -352,6 +431,43 @@ def _extract_location(*, category: str, memo: str, job: str) -> str | None:
     for token in _tokens(job):
         if token in known:
             return token
+
+    return None
+
+
+def _extract_store_name(
+    *, category: str, memo: str, subjects: list[str], job: str
+) -> str | None:
+    """맛집/여행의 '상호(가게명)'를 추출. 상호는 맛집 글의 1순위 검색어다.
+
+    근거 우선순위(전부 사용자/현장 유래라 신뢰도 높음):
+      1) job 폴더명에서 날짜·번호 접두와 지역 토큰을 뺀 나머지
+         (예: '0630 모리몰리' → '모리몰리', '0624 바오 서울' → '바오').
+      2) (1)이 비면 메모 첫 줄이 짧은 고유명사면 그것을 상호로.
+    확신이 없으면 None(날조 금지). 일반어(맛집·카페 등)는 상호로 보지 않는다.
+    """
+    if category not in ("맛집", "여행"):
+        return None
+
+    # 1) job 폴더명 파싱.
+    parts = []
+    for t in _tokens(job):
+        if re.fullmatch(r"\d{2,8}", t):       # 날짜/번호 접두(0630, 20240630 등)
+            continue
+        if t in _KNOWN_LOCATIONS:             # 지역은 상호 아님
+            continue
+        if t in _STORE_STOPWORDS:             # 맛집/카페 등 일반어 제외
+            continue
+        parts.append(t)
+    name = " ".join(parts).strip()
+    if name and len(name) >= 2:
+        return name
+
+    # 2) 메모 첫 줄(짧은 고유명사형)만 보수적으로.
+    if memo:
+        first = memo.splitlines()[0].strip() if memo.splitlines() else ""
+        if 2 <= len(first) <= 20 and first not in _STORE_STOPWORDS and " " not in first:
+            return first
 
     return None
 

@@ -40,7 +40,9 @@
         </div>
         <div class="job-current">현재 글: <span id="job-label">없음</span> <span id="file-count" class="file-count"></span></div>
         <div id="filelist" class="filelist"></div>
-        <div class="step">3 · 작성·발행</div>
+        <div class="step">3 · 메모 (선택)</div>
+        <button id="btn-memo" class="btn sub">📝 메모 추가 / 편집</button>
+        <div class="step">4 · 작성·발행</div>
         <button id="btn-write" class="btn go">✍️ 이 글 쓰고 발행</button>
       </div>
 
@@ -95,6 +97,24 @@
       <div class="modal-foot">
         <div id="settings-msg" class="modal-msg"></div>
         <button id="settings-save" class="btn primary">저장 후 세션 재시작</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 메모 모달 -->
+  <div id="memo-overlay" class="overlay hidden">
+    <div class="modal">
+      <div class="modal-head">
+        <div class="modal-title">메모 · <span id="memo-job">현재 글</span></div>
+        <button id="memo-close" class="icon-btn">✕</button>
+      </div>
+      <div class="modal-note">방문 메모(상호·위치·메뉴·가격·느낀점 등). 글쓰기·SEO가 이 메모를 사실 근거로 씁니다. 비워도 됩니다(비전 단독 모드).</div>
+      <div class="modal-body">
+        <textarea id="memo-text" class="memo-text" rows="16" placeholder="예) 모리몰리 / 성수동&#10;외관: 원래 파스타집이 스시타코집으로 바뀜. 3층까지 매장…&#10;메뉴: 연어타르타르 스시타코, 새우튀김 스시타코 …"></textarea>
+      </div>
+      <div class="modal-foot">
+        <div id="memo-msg" class="modal-msg"></div>
+        <button id="memo-save" class="btn primary">메모 저장</button>
       </div>
     </div>
   </div>
