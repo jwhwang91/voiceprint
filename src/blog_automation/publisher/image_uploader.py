@@ -222,8 +222,9 @@ def _ensure_clean_editor(page: Page, frame: Frame, sel: dict) -> None:
 # ---------------------------------------------------------------------------
 
 def _screenshots_dir() -> Path:
-    root = Path(__file__).resolve().parents[3]  # publisher -> blog_automation -> src -> ROOT
-    out = root / "logs" / "screenshots"
+    # logs 위치는 paths 가 결정(개발: repo logs/, 앱: <workspace>/logs/).
+    from .. import paths
+    out = paths.get_screenshots_dir()
     out.mkdir(parents=True, exist_ok=True)
     return out
 

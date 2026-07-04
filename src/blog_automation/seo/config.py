@@ -115,9 +115,17 @@ class GrowthConfig:
 
     @property
     def db_path(self) -> Path:
-        rel = self.section("blog_growth").get("db_path", "data/blog_growth/blog_growth.db")
-        p = Path(rel)
-        return p if p.is_absolute() else ROOT / p
+        from .. import paths
+        rel = (self.section("blog_growth").get("db_path") or "").strip()
+        # 절대경로면 그대로, 기본값/미설정이면 워크스페이스 기준, 그 외 커스텀 상대경로는 repo 루트 기준(기존 호환).
+        if rel:
+            p = Path(rel).expanduser()
+            if p.is_absolute():
+                return p
+            if rel == "data/blog_growth/blog_growth.db":
+                return paths.get_seo_db_path()
+            return paths.REPO_ROOT / p
+        return paths.get_seo_db_path()
 
     @property
     def seo(self) -> dict[str, Any]:
@@ -140,9 +148,16 @@ class GrowthConfig:
         return self.section("naver_api")
 
     def failure_log_dir(self) -> Path:
-        rel = self.crawler.get("failure_log_dir", "logs/seo_crawler_failures")
-        p = Path(rel)
-        return p if p.is_absolute() else ROOT / p
+        from .. import paths
+        rel = (self.crawler.get("failure_log_dir") or "").strip()
+        if rel:
+            p = Path(rel).expanduser()
+            if p.is_absolute():
+                return p
+            if rel == "logs/seo_crawler_failures":
+                return paths.get_seo_failure_log_dir()
+            return paths.REPO_ROOT / p
+        return paths.get_seo_failure_log_dir()
 
     # ── .env 접근(값은 로깅 금지) ──
     @staticmethod

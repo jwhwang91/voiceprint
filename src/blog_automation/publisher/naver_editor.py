@@ -10,6 +10,7 @@ config/selectors.yaml 의 write.* 를 최초 1회 확인해 채운 뒤 사용한
 """
 from __future__ import annotations
 import sys
+import time
 
 from ..config import Config, load_selectors
 from ..content.layout_planner import preview
@@ -23,10 +24,133 @@ from ..utils.files import resolve_images
 from .image_uploader import (
     upload_image, reset_group_failures, _focus_body, _dump_format_toolbar_state,
 )
-from .place_inserter import insert_place
+from .place_inserter import close_place_popup, insert_place
 from ..collector import naver_login
 
 log = get_logger()
+
+
+def _norm_url(u: str) -> str:
+    return (u or "").split("#")[0].split("?")[0].rstrip("/")
+
+
+def _open_fresh_write_page(page, write_url: str, blog_id: str) -> None:
+    """항상 '새 글' 편집기로 진입한다(직전 글에 이어쓰기/덮어쓰기 방지).
+
+    앱의 임베드 네이버 뷰는 CDP 로 붙는 **영속 페이지**라, 직전 발행이 남긴 편집기가
+    postwrite 에 그대로 떠 있다.
+
+    ⭐ 핵심(반복 회귀의 진짜 원인): 발행은 설계상 **임시저장**까지만 하고 사람이 네이버
+    '저장된 글'에서 최종 발행한다. 임시저장본은 고유 문서(documentId)를 가진다.
+    - `safe_goto` 는 같은 URL 이면 재네비게이션을 건너뛴다 → 새 job 이 직전 글에 **이어써짐**.
+    - `page.reload()` 는 **바로 그 직전 임시저장 문서를 같은 documentId 로 되살린다** → 새 job 을
+      쓰고 임시저장하면 직전 임시저장본을 **덮어써 삭제**(실측 관측된 회귀).
+    두 경우 모두 '직전 문서를 그대로 연 상태'가 문제다. 따라서 리로드/이어쓰기가 아니라
+    **완전히 새 빈 문서**로 진입해야 직전 임시저장본이 '저장된 글'에 보존된다.
+
+    해법: postwrite 로 **새로 navigate** 한다. 네이버는 이때 '작성 중이던 글이 있어요' 복구
+    팝업을 띄우고(호출부가 '취소'=새로 작성으로 닫음) 새 documentId 의 빈 문서를 준다.
+    - same-URL goto 는 Electron 임베드 뷰에서 ERR_ABORTED + safe_goto early-return 이므로,
+      쿼리로 URL 을 살짝 바꿔(캐시버스트) 우회한다. URL 에 여전히 `/postwrite` 가 있어
+      앱의 네이버 뷰 표시 트리거(정규식 /postwrite/)도 그대로 매칭된다.
+    - ⭐ dirty SmartEditor 는 `addEventListener('beforeunload', …)` 로 이탈 확인을 건다.
+      `window.onbeforeunload = null` 로는 이 리스너를 못 지워 goto 가 7ms 만에 ERR_ABORTED
+      로 죽는다(실측). 그래서 goto 직전 **캡처 단계 beforeunload 차단 리스너**를 주입해
+      에디터 리스너보다 먼저 실행되게 하고 `stopImmediatePropagation`+returnValue 클리어로
+      이탈 프롬프트를 무력화한다. 그래야 goto 가 실제로 새 문서를 로드한다.
+    - reload 폴백은 **쓰지 않는다** — reload 는 직전 임시저장 문서를 같은 documentId 로
+      되살려 새 job 이 그 위에 이어써지거나 덮어써 삭제된다(실측 회귀). ERR_ABORTED 가
+      나도 리로드하지 말고 진행한다(대개 새 문서 로드는 됐고 abort 는 네이버측 리다이렉트
+      경합일 뿐 → 이후 복구팝업/ENTRY_STATE 로 확인).
+    - 홈 등 다른 경로로 우회하면 안 됨(블로그 홈=레거시 프레임 → goto 가 임베드 뷰에서 멈춤,
+      앱 뷰도 숨겨짐 — 이전 회귀).
+    """
+    log.info("[FRESH_ENTRY] 진입 전 page.url=%s (target=%s)", page.url, write_url)
+    if _norm_url(page.url) == _norm_url(write_url):
+        log.info("직전 발행 편집기 잔여 — 새 빈 문서로 강제 진입(직전 임시저장본 보존)")
+        # 캡처 단계에서 beforeunload 를 선점·무력화(에디터의 addEventListener 리스너보다 먼저).
+        try:
+            page.evaluate(
+                """() => {
+                    try { window.onbeforeunload = null; } catch (e) {}
+                    try {
+                        window.addEventListener('beforeunload', function (e) {
+                            e.stopImmediatePropagation();
+                            e.preventDefault();
+                            try { delete e.returnValue; } catch (_) {}
+                            e.returnValue = undefined;
+                        }, true);
+                    } catch (e) {}
+                }"""
+            )
+        except Exception:  # noqa: BLE001
+            pass
+        # 캐시버스트 쿼리로 same-URL ERR_ABORTED/early-return 을 피하며 새 문서 init 유도.
+        sep = "&" if "?" in write_url else "?"
+        fresh_url = f"{write_url}{sep}_fresh={int(time.time())}"
+        try:
+            page.goto(fresh_url, wait_until="domcontentloaded", timeout=20000)
+            log.info("[FRESH_ENTRY] goto 성공 → page.url=%s", page.url)
+        except Exception as exc:  # noqa: BLE001
+            # ERR_ABORTED 라도 리로드하지 않는다(리로드=직전 문서 복원=회귀). 새 문서 로드는
+            # 대개 됐으므로 그대로 진행 — 이후 복구팝업 취소 + ENTRY_STATE 로 결과 확인.
+            log.warning("[FRESH_ENTRY] goto 예외(리로드 안 함, 그대로 진행) → page.url=%s : %s",
+                        page.url, exc)
+        return
+    safe_goto(page, write_url)
+
+
+def _dump_fresh_entry_state(page, frame, sel) -> None:
+    """진입 직후 에디터 상태 + 떠 있는 팝업을 읽기 전용으로 로깅(원인 확정용)."""
+    # 1) 에디터에 남아있는 제목/본문(새 문서면 둘 다 비어야 정상)
+    try:
+        title_txt = (frame.locator(sel["write"]["title_area"]).first.inner_text() or "").strip()
+    except Exception:  # noqa: BLE001
+        title_txt = "<read-fail>"
+    try:
+        body_txt = (frame.locator(".se-section-text").first.inner_text() or "").strip()
+    except Exception:  # noqa: BLE001
+        body_txt = "<read-fail>"
+    try:
+        img_n = frame.locator(sel["write"].get("image_component") or ".se-component.se-image").count()
+    except Exception:  # noqa: BLE001
+        img_n = -1
+    log.info("[ENTRY_STATE] url=%s | 제목=%r | 본문 %s자(앞:%r) | 이미지 %s개",
+             page.url, title_txt[:30],
+             len(body_txt) if body_txt != "<read-fail>" else body_txt, body_txt[:40], img_n)
+
+    # 2) 실제로 떠 있는 팝업/다이얼로그 전수 덤프(class + 버튼 텍스트). 복구 팝업의 진짜
+    #    클래스/버튼 라벨을 확정해 popup_sel/취소 로직을 맞추기 위함.
+    try:
+        popups = page.evaluate(
+            """() => {
+                const out = [];
+                const seen = new Set();
+                const nodes = document.querySelectorAll(
+                    '[class*="popup"],[class*="layer"],[role="dialog"],[role="alertdialog"]');
+                for (const el of nodes) {
+                    const r = el.getBoundingClientRect();
+                    if (r.width < 40 || r.height < 20) continue;        // 숨김/미미한 것 제외
+                    const cls = (el.className || '').toString();
+                    if (!cls || seen.has(cls)) continue;
+                    seen.add(cls);
+                    const btns = Array.from(el.querySelectorAll('button, a[role="button"], [class*="button"]'))
+                        .map(b => (b.innerText || b.textContent || '').trim())
+                        .filter(t => t && t.length <= 20);
+                    out.push({ cls: cls.slice(0, 120), btns: btns.slice(0, 8) });
+                    if (out.length >= 12) break;
+                }
+                return out;
+            }"""
+        )
+    except Exception as exc:  # noqa: BLE001
+        log.warning("[ENTRY_STATE] 팝업 덤프 실패: %s", exc)
+        popups = []
+    if popups:
+        for p in popups:
+            log.info("[ENTRY_POPUP] class=%s | buttons=%s", p.get("cls"), p.get("btns"))
+    else:
+        log.info("[ENTRY_POPUP] (감지된 팝업 없음)")
 
 
 def run_publish(cfg: Config, job: str, dry_run: bool = False, yes: bool = False) -> None:
@@ -97,7 +221,8 @@ def run_publish(cfg: Config, job: str, dry_run: bool = False, yes: bool = False)
         naver_login.ensure_login(cfg, page)
 
         # 2) 새 글 작성 화면 진입 (에디터는 iframe 아님 → page 에서 직접 동작)
-        safe_goto(page, sel["write"]["url"].format(blog_id=blog_id))
+        #    ⭐ 반드시 '새 글'로 리셋 — 직전 발행 편집기가 남아 이어쓰기 되는 것 방지.
+        _open_fresh_write_page(page, sel["write"]["url"].format(blog_id=blog_id), blog_id)
         main_frame = sel["write"].get("main_frame")
         frame = page
         if main_frame:
@@ -107,6 +232,11 @@ def run_publish(cfg: Config, job: str, dry_run: bool = False, yes: bool = False)
         # 에디터 로드 완료 대기
         frame.wait_for_selector(sel["write"]["title_area"], timeout=30000)
         page.wait_for_timeout(1500)
+
+        # ⭐ 진단 덤프(읽기 전용): 진입 직후 에디터에 뭐가 들어있는지 + 실제로 떠 있는
+        #    팝업(클래스·버튼 텍스트)을 그대로 찍는다. "새 글인데 이어써진다" 재현 시
+        #    이 로그로 ① 새 문서 진입 실패인지 ② 복구 팝업 셀렉터/버튼 미스매치인지 확정.
+        _dump_fresh_entry_state(page, frame, sel)
 
         # '작성 중이던 글' 복구 팝업이 뜨면 닫기(취소) — 새 글로 시작
         popup_sel = '[class*="se-popup-alert"]'
@@ -130,6 +260,12 @@ def run_publish(cfg: Config, job: str, dry_run: bool = False, yes: bool = False)
                 except Exception:  # noqa: BLE001
                     pass
             page.wait_for_timeout(800)
+
+        # ⭐ 자가치유: 이전 run 이 실패하며 남긴 '장소 검색' 팝업이 이 에디터 페이지(임베드
+        #    '네이버 보기' 뷰는 같은 URL 재진입 시 리로드하지 않아 팝업이 그대로 남는다)에
+        #    떠 있으면 먼저 닫는다. 안 닫으면 title/본문 클릭·이미지 업로드가 전부 막혀
+        #    "지도 검색창 띄운 채 리셋 안 됨" 상태가 반복된다.
+        close_place_popup(page, frame)
 
         # 3) 제목 클릭 + 입력
         frame.click(sel["write"]["title_area"], force=True)

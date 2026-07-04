@@ -16,6 +16,8 @@ fit.fit();
 
 window.api.pty.onData((d) => term.write(d));
 term.onData((d) => window.api.pty.input(d));
+// 셸이 죽으면 claude 도 꺼진 것 — 다음 버튼 클릭이 먼저 셸/claude 를 되살리게 한다.
+window.api.pty.onExit(() => { claudeStarted = false; });
 
 function syncSize() {
   try { fit.fit(); } catch (_) {}
@@ -40,14 +42,16 @@ function notice(msg, color = 32) {
 let claudeStarted = false;
 function ensureClaude() {
   if (claudeStarted) return true;
-  send('claude\r');
+  // session.claude() 는 죽은 PTY 를 먼저 되살린 뒤 claude 를 띄운다(raw send 는 죽은 셸에 무시됨).
+  window.api.session.claude();
   claudeStarted = true;
   notice('[Claude] 먼저 Claude 를 켰어요 — 화면이 준비되면 버튼을 한 번 더 눌러주세요', 33);
   return false;
 }
 
 // --- 세션 ---
-document.getElementById('btn-claude').onclick = () => { send('claude\r'); claudeStarted = true; };
+// PTY 가 죽어 있어도 되살리도록 session.claude() 경로를 쓴다(raw send 는 먹통 셸엔 무반응).
+document.getElementById('btn-claude').onclick = () => { window.api.session.claude(); claudeStarted = true; term.focus(); };
 document.getElementById('btn-status').onclick = () => { if (ensureClaude()) send('/status\r'); };
 
 // --- 기타 작업 (자기완결 지시문 주입 — 메뉴 번호 의존 X) ---
@@ -80,7 +84,49 @@ window.api.onboarding.status().then((s) => {
   const el = document.getElementById('status-chip');
   if (s.installed) { el.textContent = 'claude ' + (s.version || 'OK'); el.classList.add('ok'); }
   else { el.textContent = 'claude 미설치'; el.classList.add('bad'); }
+  if (s.apiKeyWarning) notice('⚠ ' + s.apiKeyWarning, 33);
 });
+
+// --- 워크스페이스(작업 폴더) ---
+let workspaceRoot = '';
+const wsPathEl = document.getElementById('ws-path');
+async function refreshWorkspace() {
+  try {
+    const w = await window.api.workspace.get();
+    workspaceRoot = w.root || '';
+    if (wsPathEl) {
+      wsPathEl.textContent = (w.chosen ? '📁 ' : '📁 (기본) ') + workspaceRoot;
+      wsPathEl.title = workspaceRoot;
+    }
+  } catch (_) {}
+}
+refreshWorkspace();
+
+document.getElementById('btn-ws-change').onclick = async () => {
+  try {
+    const r = await window.api.workspace.choose();
+    if (r.changed) {
+      claudeStarted = false; // PTY 재시작됨 → claude 꺼짐
+      await refreshWorkspace();
+      await refreshJobs();
+      notice(`작업 폴더를 바꿨어요: ${r.root} (세션 재시작됨)`, 32);
+    }
+  } catch (e) { notice('작업 폴더 변경 실패: ' + e.message, 31); }
+};
+document.getElementById('btn-ws-open').onclick = () => window.api.workspace.open();
+document.getElementById('btn-logs-open').onclick = () => window.api.logs.open();
+
+// --- 환경 점검 ---
+document.getElementById('btn-envcheck').onclick = async () => {
+  notice('환경 점검 중…', 36);
+  try {
+    const r = await window.api.env.check();
+    const mark = (o) => (o && o.ok ? '✓' : '✗');
+    const summary = `Claude ${mark(r.claude)} · Python ${mark(r.python)} · Playwright ${mark(r.playwright)} · Chromium ${mark(r.chromium)} · ffmpeg ${mark(r.ffmpeg)}`;
+    const allOk = [r.claude, r.python, r.playwright, r.chromium, r.ffmpeg].every((o) => o && o.ok);
+    notice(summary + (r.apiKeyWarning ? '  ⚠ API 키 감지' : ''), allOk ? 32 : 33);
+  } catch (e) { notice('환경 점검 실패: ' + e.message, 31); }
+};
 
 // --- 새 글 작성: ①폴더 → ②드롭 → ③쓰기·발행 (한 흐름) ---
 let currentJob = null;
@@ -179,21 +225,70 @@ dz.addEventListener('drop', async (e) => {
   finally { dz.classList.remove('busy'); }
 });
 
-// ③ 이 글 쓰고 발행 — 현재 job 을 claude 에 자동 전달(다시 안 물어보게)
+// 워크스페이스 기준 job 경로(claude 의 파일 읽기는 절대경로가 필요). 워크스페이스 미확인 시 상대 폴백.
+function jobPhotos(job) { return (workspaceRoot ? `${workspaceRoot}/input/${job}/photos/` : `input/${job}/photos/`); }
+function jobDrafts(job) { return (workspaceRoot ? `${workspaceRoot}/drafts/${job}/` : `drafts/${job}/`); }
+function needJob(tag) {
+  if (!currentJob) { notice(`[${tag}] 먼저 위에서 "+ 폴더 만들기" 하고 사진을 드롭하세요`, 33); return false; }
+  return true;
+}
+
+// ③ 이 글 쓰고 발행 — 현재 job 을 claude 에 자동 전달(다시 안 물어보게).
+//    영상(MOV/MP4)이 섞여 있으면 본문 쓰기 전에 video-scan→video-render(움짤)까지 한 흐름으로 체이닝.
+//    (🎬 영상 버튼은 GIF 만 따로 돌리고 싶을 때를 위한 수동 단계로 남겨둠.)
 document.getElementById('btn-write').onclick = () => {
-  if (!currentJob) { notice('[글쓰기] 먼저 위에서 "+ 폴더 만들기" 하고 사진을 드롭하세요', 33); return; }
+  if (!needJob('글쓰기')) return;
   if (!ensureClaude()) return;
   const job = currentJob;
   // 이전 발행/에디터 화면이 남아있으면 다음 작업을 방해 → 깨끗한 네이버 홈으로 초기화하고 시작.
   try { window.api.naver.home(); } catch (_) {}
   const instr =
-    `job "${job}" 로 블로그 글을 써서 발행해줘. 사진·영상은 data/input/${job}/photos/ 에 있어. ` +
-    `⭐ 먼저 data/drafts/${job}/post.md 와 layout.json 이 이미 있는지 확인하고, 있으면 ` +
+    `job "${job}" 로 블로그 글을 써서 발행해줘. 사진·영상은 ${jobPhotos(job)} 에 있어. ` +
+    `⭐ 먼저 ${jobDrafts(job)}post.md 와 layout.json 이 이미 있는지 확인하고, 있으면 ` +
     `사진 재분석 없이 "이대로 발행할까요, 새로 쓸까요?" 를 물어봐. ` +
-    `없거나 새로 쓰기를 고르면 /blog 의 "2) 포스트 작성 & 발행" 절차대로 진행해 ` +
-    `(SEO 브리프 자동 → 사진 태깅 → 본문·배치 작성 → 임시저장/발행, 발행 실패 시 inspect-dom 자가치유).`;
+    `없거나 새로 쓰기를 고르면 /blog 의 "2) 포스트 작성 & 발행" 절차대로 진행하되, ` +
+    `⭐⭐ 본문 작성 전에 먼저 ${jobPhotos(job)} 에 아직 GIF 로 안 바꾼 영상(MOV/MP4 인데 photos/_gifs/ 에 대응 .gif 가 없음)이 있는지 확인하고, ` +
+    `있으면 영상→움짤부터 처리해: \`python main.py video-scan --job "${job}"\` 실행 → 추출된 프레임만 보고(원본 영상 통째로 열지 말 것) 쓸 구간을 골라 video_plan.json 작성 → ` +
+    `\`python main.py video-render --job "${job}"\` 실행. 만든 GIF 는 본문에서 동작에 맞는 위치에 단독 이미지 블록으로 배치해(representative·콜라주 금지). ` +
+    `그다음 SEO 브리프 자동 → 사진 태깅 → 본문·배치 작성 → 임시저장/발행, 발행 실패 시 inspect-dom 자가치유.`;
   send(instr + '\r');
-  notice(`[글쓰기] "${job}" 작성·발행을 Claude 에 요청했습니다`, 36);
+  notice(`[글쓰기] "${job}" 작성·발행을 Claude 에 요청했습니다 (영상 있으면 움짤 변환 포함)`, 36);
+};
+
+// SEO 브리프 생성 — python 명령은 claude 가 실행(셸 env 에 VOICEPRINT_WORKSPACE 주입됨).
+document.getElementById('btn-seo').onclick = () => {
+  if (!needJob('SEO')) return;
+  if (!ensureClaude()) return;
+  send(`SEO 브리프를 만들어줘: \`python main.py seo-generate-brief --job "${currentJob}"\` 를 실행하고 ${jobDrafts(currentJob)}SEO_BRIEF.md 를 요약해서 보여줘.\r`);
+  notice(`[SEO] "${currentJob}" 브리프 생성을 요청했어요`, 36);
+};
+
+// 영상 → 움짤(GIF): scan → (Claude 가 video_plan.json 작성) → render
+document.getElementById('btn-video').onclick = () => {
+  if (!needJob('영상')) return;
+  if (!ensureClaude()) return;
+  send(`${jobPhotos(currentJob)} 의 영상을 움짤(GIF)로 만들어줘. /blog 의 영상 절차대로: ` +
+       `\`python main.py video-scan --job "${currentJob}"\` 실행 → 프레임만 보고 쓸 구간을 골라 video_plan.json 작성 → ` +
+       `\`python main.py video-render --job "${currentJob}"\` 실행. (원본 영상을 통째로 열지 말 것)\r`);
+  notice(`[영상] "${currentJob}" 움짤 변환을 요청했어요`, 36);
+};
+
+// 초안 미리보기 — 드래프트 파일을 claude 가 읽어 요약
+document.getElementById('btn-preview').onclick = () => {
+  if (!needJob('미리보기')) return;
+  if (!ensureClaude()) return;
+  send(`${jobDrafts(currentJob)} 의 post.md 와 layout.json 을 읽고, 제목·문단 수·사진 배치(블록 순서)를 간단히 요약해서 보여줘. 발행은 하지 마.\r`);
+  notice(`[미리보기] "${currentJob}" 초안 요약을 요청했어요`, 36);
+};
+
+// 발행 실패 시 자가치유 — self-heal 지시서 흐름
+document.getElementById('btn-heal').onclick = () => {
+  if (!needJob('자가치유')) return;
+  if (!ensureClaude()) return;
+  send(`방금 "${currentJob}" 발행이 셀렉터/DOM 문제로 실패했어. prompts/self_heal_selector.md 절차대로 ` +
+       `inspect-dom --json 으로 진단 → 패치 JSON 작성 → apply-selector-patch 로 사용자 오버라이드에 적용 → 재확인 → 재발행(최대 3회). ` +
+       `로그인/캡차/보안 문제면 고치지 말고 네이버 화면에서 직접 처리하라고 알려줘.\r`);
+  notice(`[자가치유] "${currentJob}" 셀렉터 자가치유를 요청했어요`, 36);
 };
 
 // --- 설정 모달 ---

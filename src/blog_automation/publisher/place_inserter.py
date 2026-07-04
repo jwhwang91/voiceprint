@@ -35,6 +35,94 @@ _PLACE_BUTTON_LABELS = ("장소", "지도", "place", "map")
 _PLACE_CONFIRM_LABELS = ("확인", "추가", "등록", "입력", "완료")
 
 
+def _place_popup_open(frame: Frame) -> bool:
+    """장소 검색 팝업(레이어)이 실제로 떠 있는지 — 읽기 전용 휴리스틱.
+
+    셀렉터 미확정이라 정확한 컨테이너를 모르므로, '보이는 장소/검색 입력창' 존재를
+    신호로 쓴다(있으면 팝업이 열린 상태). 오탐을 줄이려 placeholder 에 장소/검색/주소가
+    든 것만 센다.
+    """
+    try:
+        return bool(frame.evaluate(
+            r"""() => {
+                const kw = /장소|검색|주소|place|map/i;
+                for (const el of document.querySelectorAll('input')) {
+                    if (el.type === 'file' || el.type === 'hidden') continue;
+                    const ph = el.placeholder || '';
+                    if (!kw.test(ph)) continue;
+                    const r = el.getBoundingClientRect();
+                    if (r.width > 0 && r.height > 0) return true;
+                }
+                return false;
+            }"""
+        ))
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _dismiss_lingering_map_popup(page: Page, frame: Frame, *, tries: int = 3) -> bool:
+    """place 삽입 **성공 뒤** 남을 수 있는 지도 카드 팝업 레이어(`se-popup-placesMap`)를 정리한다.
+
+    관측된 버그: 결과 클릭 → 확인까지 다 성공해도 `.se-popup-placesMap` dim 레이어가 화면에
+    남아 이후 모든 `.se-toolbar` 클릭(사진 추가 등)을 가로챈다("subtree intercepts pointer
+    events"). `close_place_popup()`(검색 입력창 유무로 판단)은 이 레이어를 감지하지 못해
+    이 경로가 따로 필요하다. dim 레이어를 클릭(모달 바깥 클릭으로 닫히는 일반 패턴) →
+    안 되면 Escape 반복.
+    """
+    try:
+        if frame.locator('[class*="se-popup-placesMap"]').count() == 0:
+            return True
+    except Exception:  # noqa: BLE001
+        return True
+    for _ in range(max(1, tries)):
+        try:
+            dim = frame.locator('[class*="se-popup-placesMap"] [class*="se-popup-dim"]')
+            if dim.count() > 0:
+                dim.first.click(timeout=1500, force=True)
+            else:
+                page.keyboard.press("Escape")
+        except Exception:  # noqa: BLE001
+            pass
+        page.wait_for_timeout(400)
+        try:
+            if frame.locator('[class*="se-popup-placesMap"]').count() == 0:
+                log.info("장소 삽입 후 남은 지도 팝업 정리 완료.")
+                return True
+        except Exception:  # noqa: BLE001
+            pass
+    log.warning("장소 삽입 후 지도 팝업이 끝까지 남아있음 — 이후 업로드가 막힐 수 있음.")
+    return False
+
+
+def close_place_popup(page: Page, frame: Frame, *, tries: int = 3) -> bool:
+    """열려 있는 장소 검색 팝업을 Escape 로 닫는다(bound, 비치명적).
+
+    실패한 place 삽입이나 이전 run 이 남긴 지도 검색 레이어를 정리해, 뒤따르는
+    이미지 업로드/저장을 막지 않도록 한다. 팝업이 없으면 아무것도 하지 않는다
+    (열려있지 않을 때 불필요한 Escape 로 본문 선택을 건드리지 않기 위함).
+    반환: 팝업이 (원래 없었거나) 닫히면 True, 끝까지 남아있으면 False.
+    """
+    if not _place_popup_open(frame):
+        return True
+    for _ in range(max(1, tries)):
+        try:
+            page.keyboard.press("Escape")
+        except Exception:  # noqa: BLE001
+            pass
+        page.wait_for_timeout(400)
+        if not _place_popup_open(frame):
+            log.info("장소 검색 팝업 정리 완료(Escape).")
+            return True
+    log.warning("장소 검색 팝업이 Escape 로 닫히지 않음 — 남은 레이어가 업로드를 막을 수 있음.")
+    return False
+
+
+def _place_selectors_ready(sel: dict) -> bool:
+    """place 삽입에 필수인 셀렉터가 확정됐는지. search_input + result_item 둘 다 필요."""
+    w = sel.get("write", {})
+    return bool(w.get("place_search_input")) and bool(w.get("place_result_item"))
+
+
 def _toolbar_place_button(frame: Frame, sel: dict):
     """장소 툴바 버튼 Locator. selectors.yaml 우선, 없으면 라벨 기반 폴백. 못 찾으면 None."""
     place_sel = sel["write"].get("place_button")
@@ -128,6 +216,22 @@ def _find_search_input(page: Page, frame: Frame, sel: dict):
     return None
 
 
+def _click_search_button(frame: Frame, sel: dict) -> bool:
+    """'장소 검색' 실행 버튼 클릭(있으면). 없으면 False → 호출부가 Enter 로 폴백."""
+    btn_sel = sel["write"].get("place_search_button")
+    if not btn_sel:
+        return False
+    loc = frame.locator(btn_sel)
+    try:
+        if loc.count() > 0 and loc.first.is_visible():
+            loc.first.click(timeout=3000)
+            log.info("'장소 검색' 버튼 클릭")
+            return True
+    except Exception:  # noqa: BLE001
+        pass
+    return False
+
+
 def _click_confirm(frame: Frame, sel: dict) -> bool:
     """결과 선택 후 '삽입/확인' 버튼 클릭(있으면). 없으면 결과 클릭만으로 삽입된 것으로 간주."""
     conf_sel = sel["write"].get("place_confirm_button")
@@ -162,8 +266,19 @@ def insert_place(page: Page, frame: Frame, sel: dict, blk: dict,
         log.warning("place 블록에 query 가 없어 건너뜀: %r", blk)
         return False
 
-    # 0) 최초 실행 진단 — 셀렉터 확정용. (읽기 전용)
+    # 0) 최초 실행 진단 — 셀렉터 확정용. (읽기 전용, 지도 버튼 클릭 없이 툴바만 덤프)
     _dump_place_state(page, frame, sel, tag="before-place-button")
+
+    # ⭐ 셀렉터 게이트: 검색창/결과 항목 셀렉터가 확정되지 않았으면 **지도를 열지 않는다**.
+    #    (blind 폴백으로 지도를 열면 검색창에 글자만 치고 결과 선택에 실패해 팝업이 열린 채
+    #     남아 뒤따르는 이미지 업로드/저장을 전부 막는다 — 실제로 관측된 "지도 검색창에 갇힘" 버그.)
+    #    위 [PLACE_DUMP] 로 write.place_search_input / place_result_item 을 확정해 채운 뒤에만
+    #    실제 삽입을 시도한다. 그 전까지 place 는 no-op(글 발행은 계속 진행).
+    if not _place_selectors_ready(sel):
+        log.warning("place 셀렉터 미확정(place_search_input/place_result_item=null) — 지도를 열지 "
+                    "않고 건너뜁니다. 위 [PLACE_DUMP] 로 확정해 config/selectors.yaml 을 채우세요. "
+                    "query=%r", query)
+        return False
 
     # 1) 장소 툴바 버튼.
     btn = _toolbar_place_button(frame, sel)
@@ -176,6 +291,7 @@ def insert_place(page: Page, frame: Frame, sel: dict, blk: dict,
         btn.click(timeout=5000)
     except Exception as exc:  # noqa: BLE001
         log.warning("장소 버튼 클릭 실패 — 건너뜀: %s", exc)
+        close_place_popup(page, frame)
         return False
     page.wait_for_timeout(wait_ms)
     _dump_place_state(page, frame, sel, tag="after-place-button")  # 팝업 DOM 확정용
@@ -184,13 +300,18 @@ def insert_place(page: Page, frame: Frame, sel: dict, blk: dict,
     search = _find_search_input(page, frame, sel)
     if search is None:
         log.warning("장소 검색 입력창을 찾지 못함 — 건너뜀(위 [PLACE_DUMP] 참고). query=%r", query)
+        close_place_popup(page, frame)
         return False
     try:
         search.click(timeout=3000)
         search.fill(query)
-        page.keyboard.press("Enter")
+        # react-autosuggest 입력창은 Enter 로 검색이 안 될 수 있어, '장소 검색' 버튼이
+        # 확정돼 있으면 그걸 누른다(없으면 Enter 폴백).
+        if not _click_search_button(frame, sel):
+            page.keyboard.press("Enter")
     except Exception as exc:  # noqa: BLE001
         log.warning("장소 검색 입력 실패 — 건너뜀: %s", exc)
+        close_place_popup(page, frame)
         return False
     page.wait_for_timeout(wait_ms)
 
@@ -217,17 +338,20 @@ def insert_place(page: Page, frame: Frame, sel: dict, blk: dict,
                 pass
     if result is None:
         log.warning("장소 검색 결과를 찾지 못함 — 건너뜀(위 [PLACE_DUMP] 참고). query=%r", query)
+        close_place_popup(page, frame)
         return False
     try:
         result.click(timeout=3000)
     except Exception as exc:  # noqa: BLE001
         log.warning("장소 결과 클릭 실패 — 건너뜀: %s", exc)
+        close_place_popup(page, frame)
         return False
     page.wait_for_timeout(500)
 
     # 4) 확인/추가(있으면) → 본문에 삽입. 그 뒤 다음 블록을 위해 줄바꿈.
     _click_confirm(frame, sel)
     page.wait_for_timeout(wait_ms)
+    _dismiss_lingering_map_popup(page, frame)
     try:
         page.keyboard.press("Enter")
     except Exception:  # noqa: BLE001

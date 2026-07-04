@@ -6,9 +6,14 @@ contextBridge.exposeInMainWorld('api', {
     input: (data) => ipcRenderer.send('pty:input', data),
     resize: (cols, rows) => ipcRenderer.send('pty:resize', { cols, rows }),
     onData: (cb) => ipcRenderer.on('pty:data', (_e, d) => cb(d)),
+    onExit: (cb) => ipcRenderer.on('pty:exit', () => cb()),
   },
   session: {
     restart: () => ipcRenderer.invoke('session:restart'),
+    claude: () => ipcRenderer.invoke('session:claude'),
+  },
+  python: {
+    run: (args, env) => ipcRenderer.invoke('python:run', { args, env }),
   },
   naver: {
     show: (v) => ipcRenderer.invoke('naver:show', v),
@@ -31,6 +36,17 @@ contextBridge.exposeInMainWorld('api', {
   settings: {
     keys: () => ipcRenderer.invoke('settings:keys'),
     save: (values) => ipcRenderer.invoke('settings:save', values),
+  },
+  workspace: {
+    get: () => ipcRenderer.invoke('workspace:get'),
+    choose: () => ipcRenderer.invoke('workspace:choose'),
+    open: () => ipcRenderer.invoke('workspace:open'),
+  },
+  logs: {
+    open: () => ipcRenderer.invoke('logs:open'),
+  },
+  env: {
+    check: () => ipcRenderer.invoke('env:check'),
   },
   newJob: (job) => ipcRenderer.invoke('job:new', job),
   listJobs: () => ipcRenderer.invoke('jobs:list'),

@@ -19,6 +19,9 @@
 """
 from __future__ import annotations
 
+import datetime
+import json as _json
+
 from ..config import load_config, load_selectors
 from ..utils.browser import browser_context
 
@@ -160,8 +163,79 @@ def _print_items(items: list[dict]) -> None:
         print(line)
 
 
+# ───────────────────────── JSON 모드 헬퍼(자가치유 도구/Claude 소비용) ─────────────────────────
+
+def _now() -> str:
+    return datetime.datetime.now().astimezone().isoformat(timespec="seconds")
+
+
+def _count_visible(page, css: str):
+    """(matched, visible, error_name) 반환. 유효하지 않은 셀렉터면 error_name 채움."""
+    try:
+        loc = page.locator(css)
+        n = loc.count()
+    except Exception as e:  # noqa: BLE001
+        return None, None, type(e).__name__
+    if not n:
+        return 0, 0, None
+    try:
+        vis = loc.evaluate_all("(els) => els.filter(e => e.getClientRects().length > 0).length")
+    except Exception:  # noqa: BLE001
+        vis = None
+    return n, vis, None
+
+
+def _status_for(matched, err, *, single: bool) -> str:
+    if err is not None:
+        return "ERROR"
+    if not matched:
+        return "MISS"
+    if single and matched > 1:
+        return "AMBIGUOUS"
+    return "OK"
+
+
+def _meta(page, sel, bid: str) -> dict:
+    try:
+        url, title = page.url, page.title()
+    except Exception:  # noqa: BLE001
+        url, title = None, None
+    return {
+        "url": url,
+        "title": title,
+        "timestamp": _now(),
+        "blog_id": bid,
+        "main_frame": (sel.get("write") or {}).get("main_frame"),
+    }
+
+
+def _emit_json(obj: dict) -> None:
+    print(_json.dumps(obj, ensure_ascii=False, indent=2))
+
+
+def _health_json(page, sel, sections):
+    checks = []
+    any_miss = False
+    for section in sections:
+        block = sel.get(section) or {}
+        for key, val in block.items():
+            if not _looks_like_selector(key, val):
+                continue
+            matched, visible, err = _count_visible(page, val)
+            status = _status_for(matched, err, single=False)
+            if status in ("MISS", "ERROR"):
+                any_miss = True
+            checks.append({
+                "key": f"{section}.{key}", "selector": val, "status": status,
+                "matched": matched, "visible": visible,
+                **({"error": err} if err else {}),
+            })
+    return {"mode": "health", "sections": sections, "checks": checks, "any_miss": any_miss}
+
+
 def run_inspect_dom(cfg, *, selector=None, text=None, list_kind=None, html=None,
-                    section=None, editor=False, goto=None, blog_id=None) -> None:
+                    section=None, editor=False, goto=None, blog_id=None,
+                    json_out=False) -> None:
     sel = load_selectors()
     bid = _blog_id(cfg, blog_id)
 
@@ -171,50 +245,90 @@ def run_inspect_dom(cfg, *, selector=None, text=None, list_kind=None, html=None,
         elif editor:
             page.goto(sel["write"]["url"].format(blog_id=bid))
 
-        try:
-            print(f"URL: {page.url}")
-            print(f"TITLE: {page.title()}")
-        except Exception:
-            pass
+        meta = _meta(page, sel, bid)
+        if not json_out:
+            try:
+                print(f"URL: {page.url}")
+                print(f"TITLE: {page.title()}")
+            except Exception:
+                pass
 
         if selector:
-            try:
-                n = page.locator(selector).count()
-            except Exception as e:
-                print(f"[ERR] '{selector}' 는 유효한 셀렉터가 아닙니다 ({type(e).__name__}: {e})")
+            matched, visible, err = _count_visible(page, selector)
+            items = []
+            if matched:
+                try:
+                    items = page.locator(selector).evaluate_all(
+                        "(els) => {" + _HELPERS + " return els.slice(0,8).map(info); }")
+                except Exception:  # noqa: BLE001
+                    items = []
+            if json_out:
+                _emit_json({**meta, "mode": "selector", "selector": selector,
+                            "status": _status_for(matched, err, single=True),
+                            "matched": matched, "visible": visible,
+                            "error": err, "elements": items,
+                            "suggested_selectors": [it.get("suggest") for it in items if it.get("suggest")]})
                 return
-            print(f"\n--- selector '{selector}' → {n} matches ---")
-            if n:
-                items = page.locator(selector).evaluate_all(
-                    "(els) => {" + _HELPERS + " return els.slice(0,8).map(info); }")
+            if err is not None:
+                print(f"[ERR] '{selector}' 는 유효한 셀렉터가 아닙니다 ({err})")
+                return
+            print(f"\n--- selector '{selector}' → {matched} matches ---")
+            if matched:
                 _print_items(items)
             else:
                 print("매칭 0 — 깨진 셀렉터. --text / --list 로 대체 후보를 찾으세요.")
             return
 
         if text:
-            print(f"\n--- elements containing text '{text}' ---")
             res = page.evaluate(_JS_TEXT, {"needle": text, "cap": 40})
-            _print_items(res.get("items", []))
+            its = res.get("items", [])
+            if json_out:
+                _emit_json({**meta, "mode": "text", "needle": text, "items": its,
+                            "suggested_selectors": [it.get("suggest") for it in its if it.get("suggest")]})
+                return
+            print(f"\n--- elements containing text '{text}' ---")
+            _print_items(its)
             return
 
         if list_kind:
-            print(f"\n--- list: {list_kind} ---")
             res = page.evaluate(_JS_LIST, {"kind": list_kind, "cap": 80})
-            print(f"(보이는 것 {len(res.get('items', []))} / 전체 {res.get('total', 0)})")
-            _print_items(res.get("items", []))
+            its = res.get("items", [])
+            if json_out:
+                _emit_json({**meta, "mode": "list", "kind": list_kind,
+                            "total": res.get("total", 0), "visible": len(its), "items": its})
+                return
+            print(f"\n--- list: {list_kind} ---")
+            print(f"(보이는 것 {len(its)} / 전체 {res.get('total', 0)})")
+            _print_items(its)
             return
 
         if html:
             loc = page.locator(html)
-            if loc.count() == 0:
+            n = 0
+            try:
+                n = loc.count()
+            except Exception:  # noqa: BLE001
+                pass
+            outer = ""
+            if n:
+                try:
+                    outer = loc.first.evaluate("(el) => el.outerHTML")
+                except Exception:  # noqa: BLE001
+                    outer = ""
+            if json_out:
+                _emit_json({**meta, "mode": "html", "selector": html,
+                            "matched": n, "outerHTML": outer[:3000]})
+                return
+            if not n:
                 print(f"\n'{html}' 매칭 없음.")
                 return
-            outer = loc.first.evaluate("(el) => el.outerHTML")
             print(f"\n--- outerHTML of '{html}' (first, 3000자) ---")
             print(outer[:3000])
             return
 
         # 기본: 셀렉터 건강검진
         sections = [section] if section else ["write", "login"]
+        if json_out:
+            _emit_json({**meta, **_health_json(page, sel, sections)})
+            return
         _health(page, sel, sections)

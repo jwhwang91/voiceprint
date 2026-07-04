@@ -8,15 +8,52 @@
     "start": "electron .",
     "rebuild": "electron-rebuild -f -w node-pty",
     "fix-electron": "node scripts/ensure-electron.js",
-    "postinstall": "electron-rebuild -f -w node-pty && node scripts/ensure-electron.js"
+    "postinstall": "electron-rebuild -f -w node-pty && node scripts/ensure-electron.js",
+    "pack": "electron-builder --dir",
+    "dist": "electron-builder --mac dmg zip",
+    "dist:mac": "electron-builder --mac dmg zip"
   },
   "devDependencies": {
     "@electron/rebuild": "^3.7.0",
-    "electron": "^33.2.0"
+    "electron": "^33.2.0",
+    "electron-builder": "^25.1.8"
   },
   "dependencies": {
     "@xterm/addon-fit": "^0.10.0",
     "@xterm/xterm": "^5.5.0",
     "node-pty": "^1.0.0"
+  },
+  "build": {
+    "appId": "com.voiceprint.studio",
+    "productName": "Voiceprint Studio",
+    "//asar": "xterm/addon-fit 을 renderer 가 ../../node_modules 상대경로로 file:// 로드하므로 asar 를 끈다(asar 안 file:// 로딩 깨짐 회피). 로컬 공유용이라 용량은 무관.",
+    "asar": false,
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "src/**/*",
+      "scripts/ensure-electron.js",
+      "package.json",
+      "node_modules/**/*"
+    ],
+    "//extraResources": "repo 코어(파이썬 측)를 Resources/voiceprint-core 로 넣는다 → 패키징 모드에서 getCoreRoot()=process.resourcesPath/voiceprint-core. ⚠️ data/·워크스페이스·.env·auth/logs/drafts/photos·node_modules·.venv 는 절대 포함하지 않는다(사용자 데이터 = 번들 밖).",
+    "extraResources": [
+      { "from": "../src", "to": "voiceprint-core/src", "filter": ["**/*", "!**/__pycache__/**", "!**/*.pyc"] },
+      { "from": "../prompts", "to": "voiceprint-core/prompts" },
+      { "from": "../config", "to": "voiceprint-core/config" },
+      { "from": "../main.py", "to": "voiceprint-core/main.py" },
+      { "from": "../requirements.txt", "to": "voiceprint-core/requirements.txt" },
+      { "from": "../scripts", "to": "voiceprint-core/scripts", "filter": ["**/*", "!**/__pycache__/**", "!**/*.pyc"] },
+      { "from": "../README_USER.md", "to": "voiceprint-core/README_USER.md" },
+      { "from": "../README_DEV.md", "to": "voiceprint-core/README_DEV.md" }
+    ],
+    "mac": {
+      "category": "public.app-category.productivity",
+      "target": ["dmg", "zip"],
+      "//identity": "로컬 공유용 — 코드서명/공증 생략(미서명). 사용자는 우클릭→열기로 최초 1회 허용. TODO: 서명/공증(notarize).",
+      "identity": null
+    }
   }
 }

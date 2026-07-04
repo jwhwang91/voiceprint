@@ -1,4 +1,10 @@
-"""설정 로딩. config/settings.yaml + .env 를 합쳐 하나의 Config 객체로 제공."""
+"""설정 로딩. config/settings.yaml + .env 를 합쳐 하나의 Config 객체로 제공.
+
+경로(입력/초고/세션 등)는 `paths` 모듈(워크스페이스 추상화)로 위임한다 — 개발 모드는 repo-local
+`data/` 폴백, 앱 모드는 `VOICEPRINT_WORKSPACE`. 셀렉터 로딩은 `selectors` 모듈로 위임한다
+(번들 기본값 + 사용자 오버라이드 병합). 둘 다 기존 공개 API(`cfg.input_dir`, `load_selectors`)를
+그대로 보존하므로 호출부는 수정이 필요 없다.
+"""
 from __future__ import annotations
 
 import os
@@ -9,7 +15,16 @@ from typing import Any
 import yaml
 from dotenv import load_dotenv
 
-ROOT = Path(__file__).resolve().parents[2]   # 프로젝트 루트
+from . import paths
+# 셀렉터 로딩/접근/오버라이드 — 하위 호환을 위해 여기서 재노출(기존 `from ..config import load_selectors`).
+from .selectors import (  # noqa: F401
+    load_selectors,
+    load_selectors_raw,
+    get_selector,
+    save_selector_override,
+)
+
+ROOT = paths.REPO_ROOT                          # 프로젝트 루트(번들 기본값 위치)
 CONFIG_FILE = ROOT / "config" / "settings.yaml"
 
 
@@ -25,26 +40,24 @@ class Config:
     naver_pw: str | None = None
 
     # --- 경로 헬퍼 (절대경로로 반환) ---
-    def _p(self, key: str) -> Path:
-        return ROOT / self.raw["paths"][key]
-
+    # 모두 paths(워크스페이스 추상화)로 위임한다. 개발 모드(워크스페이스 미지정)에서는
+    # paths 기본값이 기존 settings.yaml 의 data/* 레이아웃과 정확히 일치 → 동작 동일.
     @property
-    def collected_dir(self) -> Path: return self._p("collected_dir")
+    def collected_dir(self) -> Path: return paths.get_collected_root()
     @property
-    def input_dir(self) -> Path: return self._p("input_dir")
+    def input_dir(self) -> Path: return paths.get_input_root()
     @property
-    def drafts_dir(self) -> Path: return self._p("drafts_dir")
+    def drafts_dir(self) -> Path: return paths.get_drafts_root()
     @property
-    def auth_dir(self) -> Path: return self._p("auth_dir")
+    def auth_dir(self) -> Path: return paths.get_auth_dir()
     @property
-    def persona_dir(self) -> Path: return self._p("persona_dir")
+    def persona_dir(self) -> Path: return paths.get_persona_dir()
 
     def section(self, name: str) -> dict[str, Any]:
         return self.raw.get(name, {})
 
     def ensure_dirs(self) -> None:
-        for key in ("collected_dir", "input_dir", "drafts_dir", "auth_dir", "persona_dir"):
-            self._p(key).mkdir(parents=True, exist_ok=True)
+        paths.ensure_runtime_dirs()
 
 
 def load_config() -> Config:
@@ -64,8 +77,3 @@ def load_config() -> Config:
     )
     cfg.ensure_dirs()
     return cfg
-
-
-def load_selectors() -> dict[str, Any]:
-    with open(ROOT / "config" / "selectors.yaml", encoding="utf-8") as f:
-        return yaml.safe_load(f) or {}

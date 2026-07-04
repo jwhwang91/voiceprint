@@ -81,9 +81,10 @@ write:
   #   기반 폴백으로 best-effort 시도하고, 첫 실행에서 [PLACE_DUMP] 로 실제 툴바·팝업 DOM 을
   #   남긴다 → 그 출력으로 아래 네 값을 확정해 채운다.
   place_button: 'button[data-name="map"]'   # 확인됨(라이브 DOM): 툴바 '장소' 버튼. 폴백은 title/aria만 봐서 실패(이 버튼은 title="" + 이름이 textContent라 매칭 안 됨). data-name=map 이 해시변동에 견고.
-  place_search_input: null      # TODO: 장소 검색 입력창
-  place_result_item: null       # TODO: 검색 결과 항목(클릭 대상)
-  place_confirm_button: null    # TODO: 결과 삽입/확인 버튼(없는 UI면 결과 클릭만으로 삽입)
+  place_search_input: 'input.react-autosuggest__input'          # 확인됨([PLACE_DUMP]): 검색 입력창(placeholder "장소명을 입력하세요.")
+  place_search_button: '[class*="se-popup-button-map-place"]'   # 확인됨([PLACE_DUMP]): '장소 검색' 실행 버튼(입력 후 이걸 눌러야 결과 로드; Enter 폴백 있음)
+  place_result_item: '[class*="se-popup-select-option-map-place"]'  # 확인됨([PLACE_DUMP]): 검색 결과 항목(클릭=선택/삽입 대상)
+  place_confirm_button: null    # TODO: 최종 삽입/확인 버튼(미확정 — 결과 클릭만으로 삽입되면 불필요; 라벨 폴백이 '확인/추가' 처리)
   # 저장/발행 (상단 우측). 확인됨: save_btn__/publish_btn__ + 해시
   save_draft_button: '[class*="save_btn"]'                     # 확인됨: 임시'저장'
   publish_open_button: '[class*="publish_btn"]'                # 확인됨: '발행' 패널 열기

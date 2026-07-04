@@ -11,6 +11,10 @@ log = get_logger()
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="blog-automation", description="네이버 블로그 자동화")
+    # 전역 옵션: 워크스페이스(런타임 데이터 루트). 미지정 시 VOICEPRINT_WORKSPACE env →
+    # config/settings.yaml(paths.workspace) → 개발 폴백(repo data/) 순으로 해석된다.
+    parser.add_argument("--workspace", default=None,
+                        help="런타임 데이터 루트 폴더(미지정 시 env/기본값). 예: ~/Documents/VoiceprintWorkspace")
     sub = parser.add_subparsers(dest="command", required=False)
 
     # collect: 과거 글 수집 (requests 기반, 로그인 불필요)
@@ -93,8 +97,36 @@ def main(argv: list[str] | None = None) -> int:
     idom.add_argument("--editor", action="store_true", help="먼저 에디터(postwrite)로 이동 후 검진")
     idom.add_argument("--goto", default=None, help="먼저 이 URL 로 이동 후 검진")
     idom.add_argument("--blog-id", default=None, help="블로그 주소 아이디 override")
+    idom.add_argument("--json", dest="json_out", action="store_true",
+                      help="결과를 구조화 JSON 으로 출력(앱/자가치유 도구 소비용)")
+
+    # apply-selector-patch: 자가치유 패치 JSON 을 사용자 오버라이드(selectors.user.yaml)에 적용
+    ap = sub.add_parser("apply-selector-patch",
+                        help="셀렉터 패치 JSON 을 <workspace>/config/selectors.user.yaml 에 적용")
+    ap.add_argument("--patch", required=True, help="패치 JSON 파일 경로")
+    ap.add_argument("--verify", dest="verify", action="store_true", default=None,
+                    help="적용 전 라이브 DOM 으로 new_selector 확인(기본: 앱 모드면 자동)")
+    ap.add_argument("--no-verify", dest="verify", action="store_false",
+                    help="라이브 DOM 확인 생략")
+    ap.add_argument("--blog-id", default=None, help="블로그 주소 아이디 override")
+
+    # validate-selector-patch: 패치 JSON 검증만(적용 안 함)
+    vp = sub.add_parser("validate-selector-patch", help="셀렉터 패치 JSON 스키마/안전성 검증")
+    vp.add_argument("--patch", required=True, help="패치 JSON 파일 경로")
+    vp.add_argument("--verify", dest="verify", action="store_true", default=False,
+                    help="라이브 DOM 으로도 new_selector 확인")
+    vp.add_argument("--blog-id", default=None, help="블로그 주소 아이디 override")
 
     args = parser.parse_args(argv)
+
+    # 전역 --workspace 적용(env 보다 우선). 적용 직후 로그 파일 핸들러를 새 위치로 다시 건다
+    # (모듈 import 시점에 이미 만들어졌을 수 있으므로).
+    if getattr(args, "workspace", None):
+        from . import paths
+        from .logging_setup import refresh_file_handler
+        paths.set_workspace_override(args.workspace)
+        refresh_file_handler()
+
     if not args.command or args.command == "app":
         # 인자 없이 실행 = 데스크톱 앱 실행/포커스 (CLI 도움말은 python main.py -h).
         from .tools.launch_app import run_app
@@ -155,5 +187,11 @@ def main(argv: list[str] | None = None) -> int:
         from .tools.inspect_dom import run_inspect_dom
         run_inspect_dom(cfg, selector=args.selector, text=args.text, list_kind=args.list_kind,
                         html=args.html, section=args.section, editor=args.editor,
-                        goto=args.goto, blog_id=args.blog_id)
+                        goto=args.goto, blog_id=args.blog_id, json_out=args.json_out)
+    elif args.command == "apply-selector-patch":
+        from .tools.selector_patch import run_apply_patch
+        return run_apply_patch(cfg, patch=args.patch, verify=args.verify, blog_id=args.blog_id)
+    elif args.command == "validate-selector-patch":
+        from .tools.selector_patch import run_validate_patch
+        return run_validate_patch(cfg, patch=args.patch, verify=args.verify, blog_id=args.blog_id)
     return 0
